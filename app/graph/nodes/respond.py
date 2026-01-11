@@ -32,15 +32,6 @@ def make_respond_node(deps: Deps):
         - deep_decision.repair_plan がある場合は質問/選択肢/言い換えを組み込む
         - sources_used に応じて末尾ラベル（参照: 会話のみ/記憶/Web検索/両方）を付与
         """
-        if inp.sources_used.get("memory") and inp.sources_used.get("web"):
-            label = "（参照: 記憶 + Web検索）"
-        elif inp.sources_used.get("memory"):
-            label = "（参照: 記憶）"
-        elif inp.sources_used.get("web"):
-            label = "（参照: Web検索）"
-        else:
-            label = "（参照: 会話のみ）"
-
         resp: Response = {
             "final_text": "",
             "meta": {

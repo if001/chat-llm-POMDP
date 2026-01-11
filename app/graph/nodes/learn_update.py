@@ -64,8 +64,8 @@ def make_learn_update_node():
             status="learn_update:ok",
             joint_context=inp.joint_context,
             user_model=inp.user_model,
-            policy=policy,  # type: ignore[arg-type]
-            last_turn_patch=last_turn_patch,
+            policy=inp.policy,
+            last_turn_patch={},
         )
 
     def node(state: AgentState) -> dict:
