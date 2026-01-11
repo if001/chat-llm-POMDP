@@ -247,6 +247,8 @@ class AgentState(TypedDict):
     # === action / response ===
     action: Action
     response: Response
+    memory_snippets: list[dict[str, Any]]
+    web_snippets: list[dict[str, Any]]
 
     # === learning params ===
     policy: PolicyState
@@ -337,6 +339,8 @@ def initial_state() -> AgentState:
             "used_depths": ["shallow"],
         },
         "response": {"final_text": "", "meta": {}},
+        "memory_snippets": [],
+        "web_snippets": [],
         "policy": {
             "theta_deep": 1.2,
             "deep_history": [],

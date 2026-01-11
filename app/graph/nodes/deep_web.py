@@ -52,6 +52,10 @@ def make_deep_web_node(deps: Deps):
         sources["web"] = sources["web"] or out.sources_used_web
         metrics["sources_used"] = sources
 
-        return {"deep_decision": out.deep_decision, "metrics": metrics}
+        return {
+            "deep_decision": out.deep_decision,
+            "metrics": metrics,
+            "web_snippets": out.web_snippets,
+        }
 
     return node
