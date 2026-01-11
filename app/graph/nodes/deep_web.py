@@ -31,10 +31,17 @@ def make_deep_web_node(deps: Deps):
         - deep_chain.executed に "deep_web" を追加
         - sources_used.web を True にする
         """
+        deep_decision = dict(inp.deep_decision)
+        deep_chain = dict(deep_decision.get("deep_chain", {}))
+        executed = list(deep_chain.get("executed", [])) + ["deep_web"]
+        deep_chain.setdefault("plan", [])
+        deep_chain["executed"] = executed
+        deep_chain.setdefault("stop_reason", "")
+        deep_decision["deep_chain"] = deep_chain
         return DeepWebOut(
-            status="deep_web:stub",
-            deep_decision=inp.deep_decision,
-            sources_used_web=False,
+            status="deep_web:ok",
+            deep_decision=deep_decision,
+            sources_used_web=True,
             web_snippets=[],
         )
 
@@ -42,6 +49,10 @@ def make_deep_web_node(deps: Deps):
         out = inner(
             DeepWebIn(deep_decision=state["deep_decision"], query=state["user_input"])
         )
-        return {"deep_decision": out.deep_decision}
+        metrics = dict(state["metrics"])
+        sources = dict(metrics["sources_used"])
+        sources["web"] = sources["web"] or out.sources_used_web
+        metrics["sources_used"] = sources
+        return {"deep_decision": out.deep_decision, "metrics": metrics}
 
     return node

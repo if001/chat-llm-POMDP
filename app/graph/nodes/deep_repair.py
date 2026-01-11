@@ -33,9 +33,23 @@ def make_deep_repair_node():
         - deep_decision.repair_plan を具体化
         - deep_chain.executed に "deep_repair" を追加
         """
+        deep_decision = dict(inp.deep_decision)
+        repair_plan = dict(deep_decision.get("repair_plan", {}))
+        repair_plan.setdefault("strategy", "confirm")
+        repair_plan.setdefault("questions", [])
+        repair_plan.setdefault("optionality", False)
+
+        deep_chain = dict(deep_decision.get("deep_chain", {}))
+        executed = list(deep_chain.get("executed", [])) + ["deep_repair"]
+        deep_chain.setdefault("plan", [])
+        deep_chain["executed"] = executed
+        deep_chain.setdefault("stop_reason", "")
+
+        deep_decision["repair_plan"] = repair_plan
+        deep_decision["deep_chain"] = deep_chain
         return DeepRepairOut(
-            status="deep_repair:stub",
-            deep_decision=inp.deep_decision,
+            status="deep_repair:ok",
+            deep_decision=deep_decision,
             wm_messages=inp.wm_messages,
         )
 

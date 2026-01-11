@@ -31,9 +31,16 @@ def make_deep_frame_node():
           - joint_context.frame / norms を更新
         - deep_chain.executed に "deep_frame" を追加
         """
+        deep_decision = dict(inp.deep_decision)
+        deep_chain = dict(deep_decision.get("deep_chain", {}))
+        executed = list(deep_chain.get("executed", [])) + ["deep_frame"]
+        deep_chain.setdefault("plan", [])
+        deep_chain["executed"] = executed
+        deep_chain.setdefault("stop_reason", "")
+        deep_decision["deep_chain"] = deep_chain
         return DeepFrameOut(
-            status="deep_frame:stub",
-            deep_decision=inp.deep_decision,
+            status="deep_frame:ok",
+            deep_decision=deep_decision,
             joint_context=inp.joint_context,
         )
 

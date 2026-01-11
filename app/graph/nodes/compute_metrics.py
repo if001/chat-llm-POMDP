@@ -50,9 +50,61 @@ def make_compute_metrics_node():
         - 特に ΔI は uncertainties_prev/now を用いて算出
         - ΔG は unresolved の増減・解消(resolved_count)を用いて算出
         """
-        # stub: ひとまず前回値を踏襲
-        m = dict(inp.metrics_prev)
-        return ComputeMetricsOut(status="compute_metrics:stub", metrics=m)  # type: ignore[arg-type]
+        def _clamp(val: float, lo: float = 0.0, hi: float = 1.0) -> float:
+            return max(lo, min(hi, val))
+
+        events = inp.observation.get("events", {})
+        pe = (
+            0.4 * events.get("E_correct", 0)
+            + 0.6 * events.get("E_refuse", 0)
+            + 0.3 * events.get("E_clarify", 0)
+            + 0.2 * events.get("E_miss", 0)
+            + 0.4 * events.get("E_frame_break", 0)
+            + 0.5 * events.get("E_overstep", 0)
+        )
+        pe = _clamp(pe)
+
+        delta_i = (
+            inp.uncertainties_prev.get("epistemic", 0.5)
+            - inp.uncertainties_now.get("epistemic", 0.5)
+        )
+        delta_g = (
+            inp.resolved_count
+            - (inp.unresolved_now_count - inp.unresolved_prev_count)
+        )
+        ack_type = inp.observation.get("ack_type")
+        if ack_type in {"explicit_yes", "implicit_yes"}:
+            delta_g += 0.2
+        elif ack_type == "no":
+            delta_g -= 0.2
+
+        reaction_type = inp.observation.get("reaction_type")
+        delta_j = 0.0
+        if reaction_type == "accept":
+            delta_j += 0.2
+        if reaction_type == "refuse":
+            delta_j -= 0.3
+        if reaction_type == "topic_shift" and events.get("E_frame_break", 0) == 1:
+            delta_j -= 0.2
+
+        risk = _clamp(
+            0.5 * inp.uncertainties_now.get("social", 0.5)
+            + 0.3 * events.get("E_overstep", 0)
+            + 0.3 * events.get("E_refuse", 0)
+        )
+        cost_user = _clamp(0.2 * inp.unresolved_now_count)
+
+        metrics: Metrics = {
+            "prediction_error": pe,
+            "delta_I": delta_i,
+            "delta_G": delta_g,
+            "delta_J": delta_j,
+            "risk": risk,
+            "cost_user": cost_user,
+            "cost_agent": inp.metrics_prev.get("cost_agent", 0.0),
+            "sources_used": dict(inp.sources_used),
+        }
+        return ComputeMetricsOut(status="compute_metrics:ok", metrics=metrics)
 
     def node(state: AgentState) -> dict:
         out = inner(

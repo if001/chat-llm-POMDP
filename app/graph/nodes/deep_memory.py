@@ -35,10 +35,17 @@ def make_deep_memory_node(deps: Deps):
         - deep_chain.executed に "deep_memory" を追加
         - sources_used.memory を True にする
         """
+        deep_decision = dict(inp.deep_decision)
+        deep_chain = dict(deep_decision.get("deep_chain", {}))
+        executed = list(deep_chain.get("executed", [])) + ["deep_memory"]
+        deep_chain.setdefault("plan", [])
+        deep_chain["executed"] = executed
+        deep_chain.setdefault("stop_reason", "")
+        deep_decision["deep_chain"] = deep_chain
         return DeepMemoryOut(
-            status="deep_memory:stub",
-            deep_decision=inp.deep_decision,
-            sources_used_memory=False,
+            status="deep_memory:ok",
+            deep_decision=deep_decision,
+            sources_used_memory=True,
             memory_snippets=[],
         )
 
@@ -52,6 +59,10 @@ def make_deep_memory_node(deps: Deps):
                 unresolved_points=state["unresolved_points"],
             )
         )
-        return {"deep_decision": out.deep_decision}
+        metrics = dict(state["metrics"])
+        sources = dict(metrics["sources_used"])
+        sources["memory"] = sources["memory"] or out.sources_used_memory
+        metrics["sources_used"] = sources
+        return {"deep_decision": out.deep_decision, "metrics": metrics}
 
     return node
