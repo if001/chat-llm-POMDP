@@ -1,6 +1,7 @@
 # app/graph/nodes/respond.py
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 
 from app.core.deps import Deps
@@ -41,11 +42,30 @@ def make_respond_node(deps: Deps):
         else:
             label = "（参照: 会話のみ）"
 
+        prompt = (
+            "You are a helpful assistant. Generate a response for the user. "
+            "If response_mode is repair, include a brief clarification question."
+        )
+        response = asyncio.run(
+            deps.llm.ainvoke(
+                [
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": inp.user_input},
+                ]
+            )
+        )
+        content = response if isinstance(response, str) else getattr(response, "content", "")
+
         resp: Response = {
-            "final_text": "",
-            "meta": {"sources_label": label, "turn_id": inp.turn_id},
+            "final_text": content,
+            "meta": {
+                "turn_id": inp.turn_id,
+                "sources_label": label,
+                "used_levels": inp.action.get("used_levels", []),
+                "used_depths": inp.action.get("used_depths", []),
+            },
         }
-        return RespondOut(status="respond:stub", response=resp)
+        return RespondOut(status="respond:ok", response=resp)
 
     def node(state: AgentState) -> dict:
         out = inner(
