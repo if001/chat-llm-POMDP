@@ -33,12 +33,10 @@ def make_deep_repair_node():
         - deep_decision.repair_plan を具体化
         - deep_chain.executed に "deep_repair" を追加
         """
-        dd = dict(inp.deep_decision)
-        chain = dict(dd["deep_chain"])
-        chain["executed"] = list(chain["executed"]) + ["deep_repair"]
-        dd["deep_chain"] = chain
         return DeepRepairOut(
-            status="deep_repair:stub", deep_decision=dd, wm_messages=inp.wm_messages
+            status="deep_repair:stub",
+            deep_decision=inp.deep_decision,
+            wm_messages=inp.wm_messages,
         )
 
     def node(state: AgentState) -> dict:
