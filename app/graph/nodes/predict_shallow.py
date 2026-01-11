@@ -33,6 +33,83 @@ class PredictShallowOut:
     # 将来拡張: affective_patch / unresolved_patch などを追加可能
 
 
+def _base_prediction(level: str, turn_id: int) -> PredictionCommon:
+    return {
+        "level": level,  # type: ignore
+        "depth": "shallow",
+        "outputs": {},
+        "confidence": 0.0,
+        "evidence": {
+            "from_turns": [turn_id],
+            "sources_used": {"memory": False, "web": False},
+        },
+        "timestamp_turn": turn_id,
+    }
+
+
+def _predict_l0(inp: PredictShallowIn) -> PredictionCommon:
+    pred = _base_prediction("L0", inp.turn_id)
+    pred["outputs"] = {
+        "style_fit": 0.5,
+        "turn_pressure": 0.5,
+        "features": {
+            "char_len": len(inp.user_input),
+            "question_mark_count": inp.user_input.count("?"),
+        },
+    }
+    return pred
+
+
+def _predict_l1(inp: PredictShallowIn) -> PredictionCommon:
+    pred = _base_prediction("L1", inp.turn_id)
+    pred["outputs"] = {
+        "speech_act": "other",
+        "grounding_need": 0.5,
+        "repair_need": 0.0,
+    }
+    return pred
+
+
+def _predict_l2(inp: PredictShallowIn) -> PredictionCommon:
+    pred = _base_prediction("L2", inp.turn_id)
+    pred["outputs"] = {
+        "local_intent": "unknown",
+        "U_semantic": 0.5,
+        "U_epistemic": 0.5,
+        "U_social": 0.5,
+        "need_question_design": False,
+    }
+    return pred
+
+
+def _predict_l3(inp: PredictShallowIn) -> PredictionCommon:
+    pred = _base_prediction("L3", inp.turn_id)
+    pred["outputs"] = {
+        "cg_gap_candidates": [],
+        "stance_update_signal": "none",
+    }
+    return pred
+
+
+def _predict_l4(inp: PredictShallowIn) -> PredictionCommon:
+    pred = _base_prediction("L4", inp.turn_id)
+    pred["outputs"] = {
+        "l4_trigger_score": 0.0,
+        "frame_hypothesis": inp.joint_context.get("frame", "explore"),
+    }
+    return pred
+
+
+def _uncertainties_from_l2(l2_prediction: PredictionCommon) -> EpistemicUncertainty:
+    outputs = l2_prediction.get("outputs", {})
+    return {
+        "semantic": float(outputs.get("U_semantic", 0.5)),
+        "epistemic": float(outputs.get("U_epistemic", 0.5)),
+        "social": float(outputs.get("U_social", 0.5)),
+        "confidence": float(l2_prediction.get("confidence", 0.0)),
+    }
+
+
 def make_predict_shallow_node():
     def inner(inp: PredictShallowIn) -> PredictShallowOut:
         """
@@ -51,26 +128,15 @@ def make_predict_shallow_node():
           - predictions(L0..L4)
           - epistemic uncertainties の shallow 推定（uncertainties_now）
         """
-        preds: dict[str, PredictionCommon] = {}
-        for lvl in ["L0", "L1", "L2", "L3", "L4"]:
-            preds[lvl] = {
-                "level": lvl,  # type: ignore
-                "depth": "shallow",
-                "outputs": {},
-                "confidence": 0.0,
-                "evidence": {
-                    "from_turns": [inp.turn_id],
-                    "sources_used": {"memory": False, "web": False},
-                },
-                "timestamp_turn": inp.turn_id,
-            }
-
-        uncertainties_now: EpistemicUncertainty = {
-            "semantic": 0.5,
-            "epistemic": 0.5,
-            "social": 0.5,
-            "confidence": 0.0,
+        preds: dict[str, PredictionCommon] = {
+            "L0": _predict_l0(inp),
+            "L1": _predict_l1(inp),
+            "L2": _predict_l2(inp),
+            "L3": _predict_l3(inp),
+            "L4": _predict_l4(inp),
         }
+
+        uncertainties_now = _uncertainties_from_l2(preds["L2"])
         return PredictShallowOut(
             status="predict_shallow:stub",
             predictions=preds,
