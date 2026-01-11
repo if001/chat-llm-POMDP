@@ -138,7 +138,7 @@ def make_predict_shallow_node():
 
         uncertainties_now = _uncertainties_from_l2(preds["L2"])
         return PredictShallowOut(
-            status="predict_shallow:stub",
+            status="predict_shallow:ok",
             predictions=preds,
             uncertainties_now=uncertainties_now,
         )
