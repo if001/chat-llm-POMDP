@@ -48,9 +48,9 @@ def make_learn_update_node():
           - prev_uncertainties / prev_unresolved_count
         """
         policy = dict(inp.policy)
-        deep_chain = inp.deep_decision.get("deep_chain", {})
-        executed = list(deep_chain.get("executed", []))
-        policy["deep_history"] = list(policy.get("deep_history", [])) + executed
+        # stub: deep_history だけ追記する口
+        executed = inp.deep_decision.get("deep_chain", {}).get("executed", [])
+        policy["deep_history"] = list(policy.get("deep_history", [])) + list(executed)
 
         last_turn_patch = {
             "prev_assistant_text": inp.response.get("final_text", ""),
@@ -60,8 +60,9 @@ def make_learn_update_node():
             "prev_unresolved_count": int(inp.unresolved_count_now),
             "resolved_count_last_turn": 0,
         }
+
         return LearnUpdateOut(
-            status="learn_update:ok",
+            status="learn_update:stub",
             joint_context=inp.joint_context,
             user_model=inp.user_model,
             policy=policy,  # type: ignore[arg-type]

@@ -46,8 +46,8 @@ def build_graph(deps: Deps):
 
     # nodes
     g.add_node("ingest_turn", make_ingest_turn_node())
-    g.add_node("observe_reaction", make_observe_reaction_node(deps))
-    g.add_node("predict_shallow", make_predict_shallow_node(deps))
+    g.add_node("observe_reaction", make_observe_reaction_node())
+    g.add_node("predict_shallow", make_predict_shallow_node())
     g.add_node("compute_metrics", make_compute_metrics_node())
     g.add_node("gate_depth", make_gate_depth_node())
 

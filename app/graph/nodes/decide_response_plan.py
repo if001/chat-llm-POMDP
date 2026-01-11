@@ -31,31 +31,20 @@ def make_decide_response_plan_node():
           - 質問数・確認質問
           - memory/web を使う（計画/意図）かどうか
         """
-        reason = inp.deep_decision.get("reason", "")
-        response_mode = "explain"
-        if reason == "frame_collapse":
-            response_mode = "meta_frame"
-        elif reason == "meaning_mismatch":
-            response_mode = "repair"
-
-        repair_plan = inp.deep_decision.get("repair_plan", {})
-        used_levels = list(inp.predictions.keys())
-        used_depths = [
-            p.get("depth", "shallow") for p in inp.predictions.values() if isinstance(p, dict)
-        ]
+        norms = inp.joint_context["norms"]
         action: Action = {
             "chosen_frame": inp.joint_context["frame"],
             "chosen_role_leader": inp.joint_context["roles"]["leader"],
-            "response_mode": response_mode,
+            "response_mode": "explain",
             "questions_asked": 0,
-            "question_budget": inp.joint_context["norms"]["question_budget"],
-            "confirm_questions": list(repair_plan.get("questions", [])),
-            "did_memory_search": reason == "persona_premise_mismatch",
-            "did_web_search": reason == "need_evidence",
-            "used_levels": used_levels,
-            "used_depths": used_depths or ["shallow"],
+            "question_budget": norms["question_budget"],
+            "confirm_questions": [],
+            "did_memory_search": False,
+            "did_web_search": False,
+            "used_levels": ["L0", "L1", "L2", "L3", "L4"],
+            "used_depths": ["shallow"],
         }
-        return DecidePlanOut(status="decide_response_plan:ok", action=action)
+        return DecidePlanOut(status="decide_response_plan:stub", action=action)
 
     def node(state: AgentState) -> dict:
         out = inner(

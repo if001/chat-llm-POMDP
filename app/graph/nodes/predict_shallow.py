@@ -1,12 +1,9 @@
 # app/graph/nodes/predict_shallow.py
 from __future__ import annotations
 
-import asyncio
-import json
 from dataclasses import dataclass
 from typing import Any
 
-from app.core.deps import Deps
 from app.models.state import AgentState, EpistemicUncertainty
 from app.models.types import PredictionCommon
 
@@ -36,24 +33,7 @@ class PredictShallowOut:
     # 将来拡張: affective_patch / unresolved_patch などを追加可能
 
 
-def _get_content(result: Any) -> str:
-    if isinstance(result, str):
-        return result
-    return getattr(result, "content", "")
-
-
-def _run_async(coro):
-    return asyncio.run(coro)
-
-
-def _parse_json(text: str) -> dict[str, Any]:
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return {}
-
-
-def make_predict_shallow_node(deps: Deps):
+def make_predict_shallow_node():
     def inner(inp: PredictShallowIn) -> PredictShallowOut:
         """
         何をするか:
@@ -71,106 +51,28 @@ def make_predict_shallow_node(deps: Deps):
           - predictions(L0..L4)
           - epistemic uncertainties の shallow 推定（uncertainties_now）
         """
-        prompt = (
-            "You are a classifier. Return JSON with keys: "
-            "speech_act, local_intent, U_semantic, U_epistemic, U_social, "
-            "style_fit, turn_pressure. Use numeric values 0..1 for U_*/style/pressure."
-        )
-        response = _run_async(
-            deps.small_llm.ainvoke(
-                [
-                    {"role": "system", "content": prompt},
-                    {"role": "user", "content": inp.user_input},
-                ]
-            )
-        )
-        parsed = _parse_json(_get_content(response))
-        preds: dict[str, PredictionCommon] = {
-            "L0": {
-                "level": "L0",
+        preds: dict[str, PredictionCommon] = {}
+        for lvl in ["L0", "L1", "L2", "L3", "L4"]:
+            preds[lvl] = {
+                "level": lvl,  # type: ignore
                 "depth": "shallow",
-                "outputs": {
-                    "style_fit": float(parsed.get("style_fit", 0.5)),
-                    "turn_pressure": float(parsed.get("turn_pressure", 0.5)),
-                    "features": {},
-                },
+                "outputs": {},
                 "confidence": 0.0,
                 "evidence": {
                     "from_turns": [inp.turn_id],
                     "sources_used": {"memory": False, "web": False},
                 },
                 "timestamp_turn": inp.turn_id,
-            },
-            "L1": {
-                "level": "L1",
-                "depth": "shallow",
-                "outputs": {
-                    "speech_act": parsed.get("speech_act", "other"),
-                    "grounding_need": 0.0,
-                    "repair_need": 0.0,
-                },
-                "confidence": 0.0,
-                "evidence": {
-                    "from_turns": [inp.turn_id],
-                    "sources_used": {"memory": False, "web": False},
-                },
-                "timestamp_turn": inp.turn_id,
-            },
-            "L2": {
-                "level": "L2",
-                "depth": "shallow",
-                "outputs": {
-                    "local_intent": parsed.get("local_intent", "unknown"),
-                    "U_semantic": float(parsed.get("U_semantic", 0.5)),
-                    "U_epistemic": float(parsed.get("U_epistemic", 0.5)),
-                    "U_social": float(parsed.get("U_social", 0.5)),
-                    "need_question_design": False,
-                },
-                "confidence": 0.0,
-                "evidence": {
-                    "from_turns": [inp.turn_id],
-                    "sources_used": {"memory": False, "web": False},
-                },
-                "timestamp_turn": inp.turn_id,
-            },
-            "L3": {
-                "level": "L3",
-                "depth": "shallow",
-                "outputs": {
-                    "cg_gap_candidates": [],
-                    "stance_update_signal": "",
-                },
-                "confidence": 0.0,
-                "evidence": {
-                    "from_turns": [inp.turn_id],
-                    "sources_used": {"memory": False, "web": False},
-                },
-                "timestamp_turn": inp.turn_id,
-            },
-            "L4": {
-                "level": "L4",
-                "depth": "shallow",
-                "outputs": {
-                    "l4_trigger_score": 0.0,
-                    "frame_hypothesis": inp.joint_context.get("frame"),
-                },
-                "confidence": 0.0,
-                "evidence": {
-                    "from_turns": [inp.turn_id],
-                    "sources_used": {"memory": False, "web": False},
-                },
-                "timestamp_turn": inp.turn_id,
-            },
-        }
+            }
 
         uncertainties_now: EpistemicUncertainty = {
-            "semantic": float(parsed.get("U_semantic", 0.5)),
-            "epistemic": float(parsed.get("U_epistemic", 0.5)),
-            "social": float(parsed.get("U_social", 0.5)),
+            "semantic": 0.5,
+            "epistemic": 0.5,
+            "social": 0.5,
             "confidence": 0.0,
         }
         return PredictShallowOut(
-            status="predict_shallow:ok",
+            status="predict_shallow:stub",
             predictions=preds,
             uncertainties_now=uncertainties_now,
         )

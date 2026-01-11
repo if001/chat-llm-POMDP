@@ -35,42 +35,12 @@ def make_gate_depth_node():
         - deep_reason を決定（meaning_mismatch / need_evidence / persona_premise_mismatch / frame_collapse）
         - deep_chain.plan を作成（最大2段などのポリシーに従う）
         """
-        uncertainties = inp.epistemic_state.get("uncertainties", {})
-        high_stakes = inp.epistemic_state.get("high_stakes", {}).get("value", 0.0)
-        pe = inp.metrics.get("prediction_error", 0.0)
-        cost_user = inp.metrics.get("cost_user", 0.0)
-        deep_score = (
-            1.0 * pe
-            + 0.9 * uncertainties.get("semantic", 0.5)
-            + 0.9 * uncertainties.get("epistemic", 0.5)
-            + 1.1 * uncertainties.get("social", 0.5)
-            + 0.8 * high_stakes
-            - 0.6 * cost_user
-        )
-
-        reason = ""
-        plan: list[str] = []
-        if deep_score >= inp.theta_deep:
-            if pe >= 0.6 or uncertainties.get("semantic", 0.0) >= 0.6:
-                reason = "meaning_mismatch"
-                plan = ["deep_repair"]
-            elif uncertainties.get("social", 0.0) >= 0.6:
-                reason = "persona_premise_mismatch"
-                plan = ["deep_memory"]
-            elif uncertainties.get("epistemic", 0.0) >= 0.6:
-                reason = "need_evidence"
-                plan = ["deep_web"]
-
-        if pe >= 0.6 and inp.stance >= 0.7:
-            reason = "frame_collapse"
-            plan = ["deep_frame"]
-
         dd: DeepDecision = {
-            "reason": reason,
+            "reason": "",
             "repair_plan": {"strategy": "", "questions": [], "optionality": False},
-            "deep_chain": {"plan": plan, "executed": [], "stop_reason": ""},
+            "deep_chain": {"plan": [], "executed": [], "stop_reason": ""},
         }
-        return GateDepthOut(status="gate_depth:ok", deep_decision=dd)
+        return GateDepthOut(status="gate_depth:stub", deep_decision=dd)
 
     def node(state: AgentState) -> dict:
         out = inner(
