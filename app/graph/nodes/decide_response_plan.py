@@ -31,18 +31,17 @@ def make_decide_response_plan_node():
           - 質問数・確認質問
           - memory/web を使う（計画/意図）かどうか
         """
-        norms = inp.joint_context["norms"]
         action: Action = {
             "chosen_frame": inp.joint_context["frame"],
             "chosen_role_leader": inp.joint_context["roles"]["leader"],
             "response_mode": "explain",
             "questions_asked": 0,
-            "question_budget": norms["question_budget"],
+            "question_budget": inp.joint_context["norms"]["question_budget"],
             "confirm_questions": [],
             "did_memory_search": False,
             "did_web_search": False,
-            "used_levels": ["L0", "L1", "L2", "L3", "L4"],
-            "used_depths": ["shallow"],
+            "used_levels": [],
+            "used_depths": [],
         }
         return DecidePlanOut(status="decide_response_plan:stub", action=action)
 

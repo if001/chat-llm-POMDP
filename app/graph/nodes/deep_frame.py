@@ -31,12 +31,10 @@ def make_deep_frame_node():
           - joint_context.frame / norms を更新
         - deep_chain.executed に "deep_frame" を追加
         """
-        dd = dict(inp.deep_decision)
-        chain = dict(dd["deep_chain"])
-        chain["executed"] = list(chain["executed"]) + ["deep_frame"]
-        dd["deep_chain"] = chain
         return DeepFrameOut(
-            status="deep_frame:stub", deep_decision=dd, joint_context=inp.joint_context
+            status="deep_frame:stub",
+            deep_decision=inp.deep_decision,
+            joint_context=inp.joint_context,
         )
 
     def node(state: AgentState) -> dict:
