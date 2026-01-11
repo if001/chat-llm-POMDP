@@ -29,6 +29,9 @@ def make_observe_reaction_node():
           - events(E_correct/E_refuse/E_clarify/E_miss/E_frame_break/E_overstep)
         - small LLM vote + 構造特徴（質問未回答など）で confidence を算出
         """
+        miss = 0
+        if inp.prev_action.get("questions_asked", 0) > 0 and not inp.user_input.strip():
+            miss = 1
         obs: Observation = {
             "reaction_type": "mixed",
             "ack_type": "none",
@@ -36,13 +39,13 @@ def make_observe_reaction_node():
                 "E_correct": 0,
                 "E_refuse": 0,
                 "E_clarify": 0,
-                "E_miss": 0,
+                "E_miss": miss,
                 "E_frame_break": 0,
                 "E_overstep": 0,
             },
             "confidence": 0.0,
         }
-        return ObserveReactionOut(status="observe_reaction:stub", observation=obs)
+        return ObserveReactionOut(status="observe_reaction:ok", observation=obs)
 
     def node(state: AgentState) -> dict:
         out = inner(

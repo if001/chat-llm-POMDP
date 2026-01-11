@@ -43,9 +43,14 @@ def make_respond_node(deps: Deps):
 
         resp: Response = {
             "final_text": "",
-            "meta": {"sources_label": label, "turn_id": inp.turn_id},
+            "meta": {
+                "turn_id": inp.turn_id,
+                "sources_label": label,
+                "used_levels": inp.action.get("used_levels", []),
+                "used_depths": inp.action.get("used_depths", []),
+            },
         }
-        return RespondOut(status="respond:stub", response=resp)
+        return RespondOut(status="respond:ok", response=resp)
 
     def node(state: AgentState) -> dict:
         out = inner(

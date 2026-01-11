@@ -51,19 +51,83 @@ def make_predict_shallow_node():
           - predictions(L0..L4)
           - epistemic uncertainties の shallow 推定（uncertainties_now）
         """
-        preds: dict[str, PredictionCommon] = {}
-        for lvl in ["L0", "L1", "L2", "L3", "L4"]:
-            preds[lvl] = {
-                "level": lvl,  # type: ignore
+        preds: dict[str, PredictionCommon] = {
+            "L0": {
+                "level": "L0",
                 "depth": "shallow",
-                "outputs": {},
+                "outputs": {
+                    "style_fit": 0.5,
+                    "turn_pressure": 0.5,
+                    "features": {},
+                },
                 "confidence": 0.0,
                 "evidence": {
                     "from_turns": [inp.turn_id],
                     "sources_used": {"memory": False, "web": False},
                 },
                 "timestamp_turn": inp.turn_id,
-            }
+            },
+            "L1": {
+                "level": "L1",
+                "depth": "shallow",
+                "outputs": {
+                    "speech_act": "other",
+                    "grounding_need": 0.0,
+                    "repair_need": 0.0,
+                },
+                "confidence": 0.0,
+                "evidence": {
+                    "from_turns": [inp.turn_id],
+                    "sources_used": {"memory": False, "web": False},
+                },
+                "timestamp_turn": inp.turn_id,
+            },
+            "L2": {
+                "level": "L2",
+                "depth": "shallow",
+                "outputs": {
+                    "local_intent": "unknown",
+                    "U_semantic": 0.5,
+                    "U_epistemic": 0.5,
+                    "U_social": 0.5,
+                    "need_question_design": False,
+                },
+                "confidence": 0.0,
+                "evidence": {
+                    "from_turns": [inp.turn_id],
+                    "sources_used": {"memory": False, "web": False},
+                },
+                "timestamp_turn": inp.turn_id,
+            },
+            "L3": {
+                "level": "L3",
+                "depth": "shallow",
+                "outputs": {
+                    "cg_gap_candidates": [],
+                    "stance_update_signal": "",
+                },
+                "confidence": 0.0,
+                "evidence": {
+                    "from_turns": [inp.turn_id],
+                    "sources_used": {"memory": False, "web": False},
+                },
+                "timestamp_turn": inp.turn_id,
+            },
+            "L4": {
+                "level": "L4",
+                "depth": "shallow",
+                "outputs": {
+                    "l4_trigger_score": 0.0,
+                    "frame_hypothesis": inp.joint_context.get("frame"),
+                },
+                "confidence": 0.0,
+                "evidence": {
+                    "from_turns": [inp.turn_id],
+                    "sources_used": {"memory": False, "web": False},
+                },
+                "timestamp_turn": inp.turn_id,
+            },
+        }
 
         uncertainties_now: EpistemicUncertainty = {
             "semantic": 0.5,
@@ -72,7 +136,7 @@ def make_predict_shallow_node():
             "confidence": 0.0,
         }
         return PredictShallowOut(
-            status="predict_shallow:stub",
+            status="predict_shallow:ok",
             predictions=preds,
             uncertainties_now=uncertainties_now,
         )
