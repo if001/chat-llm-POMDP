@@ -58,7 +58,7 @@ def build_graph(deps: Deps):
 
     g.add_node("decide_response_plan", make_decide_response_plan_node(deps))
     g.add_node("respond", make_respond_node(deps))
-    g.add_node("learn_update", make_learn_update_node())
+    g.add_node("learn_update", make_learn_update_node(deps))
     g.add_node("persist_trace", make_persist_trace_node(deps))
 
     # edges (linear core)
