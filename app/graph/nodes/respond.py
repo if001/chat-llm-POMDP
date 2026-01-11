@@ -18,6 +18,9 @@ class RespondIn:
     predictions: dict
     deep_decision: dict
     sources_used: dict
+    joint_context: dict
+    memory_snippets: list[dict]
+    web_snippets: list[dict]
 
 
 @dataclass(frozen=True)
@@ -39,9 +42,22 @@ async def _generate_response(
     inp: RespondIn,
     label: str,
 ) -> str:
+    norms = inp.joint_context.get("norms", {})
+    response_mode = inp.action.get("response_mode")
+    confirm_questions = inp.action.get("confirm_questions", [])
+    repair_plan = inp.deep_decision.get("repair_plan", {})
+    frame = inp.joint_context.get("frame")
+    leader = inp.joint_context.get("roles", {}).get("leader")
+    sources_context = []
+    if inp.memory_snippets:
+        sources_context.append(f"memory_snippets: {inp.memory_snippets}")
+    if inp.web_snippets:
+        sources_context.append(f"web_snippets: {inp.web_snippets}")
+    sources_block = "\n".join(sources_context) if sources_context else "no external sources"
     prompt = (
         "You are a helpful assistant. "
-        "Use the response_mode and repair_plan if provided."
+        "Follow the response_mode, norms, and repair_plan. "
+        "If memory/web snippets are provided, ground the response in them and cite them implicitly."
     )
     try:
         result = await llm.ainvoke(
@@ -51,9 +67,13 @@ async def _generate_response(
                     "role": "user",
                     "content": (
                         f"user_input: {inp.user_input}\n"
-                        f"response_mode: {inp.action.get('response_mode')}\n"
-                        f"repair_plan: {inp.deep_decision.get('repair_plan')}\n"
-                        f"predictions: {inp.predictions}"
+                        f"frame: {frame}\nleader: {leader}\n"
+                        f"norms: {norms}\n"
+                        f"response_mode: {response_mode}\n"
+                        f"confirm_questions: {confirm_questions}\n"
+                        f"repair_plan: {repair_plan}\n"
+                        f"predictions: {inp.predictions}\n"
+                        f"sources: {sources_block}"
                     ),
                 },
             ]
@@ -97,6 +117,9 @@ def make_respond_node(deps: Deps):
                 predictions=state["predictions"],
                 deep_decision=state["deep_decision"],
                 sources_used=state["metrics"]["sources_used"],
+                joint_context=state["joint_context"],
+                memory_snippets=state["memory_snippets"],
+                web_snippets=state["web_snippets"],
             )
         )
         return {"response": out.response}

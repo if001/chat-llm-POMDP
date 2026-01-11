@@ -63,6 +63,11 @@ def make_deep_memory_node(deps: Deps):
         sources = dict(metrics["sources_used"])
         sources["memory"] = sources["memory"] or out.sources_used_memory
         metrics["sources_used"] = sources
-        return {"deep_decision": out.deep_decision, "metrics": metrics}
+
+        return {
+            "deep_decision": out.deep_decision,
+            "metrics": metrics,
+            "memory_snippets": out.memory_snippets,
+        }
 
     return node
