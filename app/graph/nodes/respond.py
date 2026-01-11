@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from app.core.deps import Deps
 from app.models.state import AgentState, Response
+from app.ports.llm import LLMPort
 
 
 @dataclass(frozen=True)
@@ -24,27 +26,69 @@ class RespondOut:
     response: Response
 
 
+def _get_content(result: Any) -> str:
+    if isinstance(result, str):
+        return result
+    if hasattr(result, "content"):
+        return str(result.content)
+    return str(result)
+
+
+async def _generate_response(
+    llm: LLMPort,
+    inp: RespondIn,
+    label: str,
+) -> str:
+    prompt = (
+        "You are a helpful assistant. "
+        "Use the response_mode and repair_plan if provided."
+    )
+    try:
+        result = await llm.ainvoke(
+            [
+                {"role": "system", "content": prompt},
+                {
+                    "role": "user",
+                    "content": (
+                        f"user_input: {inp.user_input}\n"
+                        f"response_mode: {inp.action.get('response_mode')}\n"
+                        f"repair_plan: {inp.deep_decision.get('repair_plan')}\n"
+                        f"predictions: {inp.predictions}"
+                    ),
+                },
+            ]
+        )
+    except Exception:
+        return f"{label}"
+    return f"{_get_content(result)}{label}"
+
+
 def make_respond_node(deps: Deps):
-    def inner(inp: RespondIn) -> RespondOut:
+    async def inner(inp: RespondIn) -> RespondOut:
         """
         何をするか:
         - action.response_mode に従って最終応答文を生成（LLM）
         - deep_decision.repair_plan がある場合は質問/選択肢/言い換えを組み込む
         - sources_used に応じて末尾ラベル（参照: 会話のみ/記憶/Web検索/両方）を付与
         """
+        if inp.sources_used.get("memory") and inp.sources_used.get("web"):
+            label = "（参照: 記憶 + Web検索）"
+        elif inp.sources_used.get("memory"):
+            label = "（参照: 記憶）"
+        elif inp.sources_used.get("web"):
+            label = "（参照: Web検索）"
+        else:
+            label = "（参照: 会話のみ）"
+
+        final_text = await _generate_response(deps.llm, inp, label)
         resp: Response = {
-            "final_text": "",
-            "meta": {
-                "turn_id": inp.turn_id,
-                "sources_label": label,
-                "used_levels": inp.action.get("used_levels", []),
-                "used_depths": inp.action.get("used_depths", []),
-            },
+            "final_text": final_text,
+            "meta": {"sources_label": label, "turn_id": inp.turn_id},
         }
         return RespondOut(status="respond:ok", response=resp)
 
-    def node(state: AgentState) -> dict:
-        out = inner(
+    async def node(state: AgentState) -> dict:
+        out = await inner(
             RespondIn(
                 turn_id=state["turn_id"],
                 user_input=state["user_input"],
