@@ -29,10 +29,12 @@ def make_ingest_turn_node():
         - turn_id を進める（または「このターンのID」を確定させる）
         - working memory window のトリム（必要なら）
         """
+        new_messages = list(inp.wm_messages)
+        new_messages.append({"role": "user", "content": inp.user_input})
         return IngestTurnOut(
-            status="ingest_turn:stub",
-            turn_id=inp.turn_id,
-            wm_messages=inp.wm_messages,
+            status="ingest_turn:ok",
+            turn_id=inp.turn_id + 1,
+            wm_messages=new_messages,
         )
 
     def node(state: AgentState) -> dict:
