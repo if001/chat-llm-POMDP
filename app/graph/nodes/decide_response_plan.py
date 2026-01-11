@@ -112,14 +112,14 @@ def make_decide_response_plan_node(deps: Deps):
         fallback_action: Action = {
             "chosen_frame": inp.joint_context["frame"],
             "chosen_role_leader": inp.joint_context["roles"]["leader"],
-            "response_mode": "explain",
+            "response_mode": response_mode,
             "questions_asked": 0,
-            "question_budget": norms["question_budget"],
-            "confirm_questions": [],
-            "did_memory_search": False,
-            "did_web_search": False,
-            "used_levels": ["L0", "L1", "L2", "L3", "L4"],
-            "used_depths": ["shallow"],
+            "question_budget": inp.joint_context["norms"]["question_budget"],
+            "confirm_questions": list(repair_plan.get("questions", [])),
+            "did_memory_search": reason == "persona_premise_mismatch",
+            "did_web_search": reason == "need_evidence",
+            "used_levels": used_levels,
+            "used_depths": used_depths or ["shallow"],
         }
         action = await _decide_action(deps.small_llm, inp, fallback_action)
         return DecidePlanOut(status="decide_response_plan:ok", action=action)
