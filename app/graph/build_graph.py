@@ -17,6 +17,7 @@ from app.graph.nodes.deep_web import make_deep_web_node
 from app.graph.nodes.deep_frame import make_deep_frame_node
 from app.graph.nodes.decide_response_plan import make_decide_response_plan_node
 from app.graph.nodes.respond import make_respond_node
+from app.graph.nodes.update_joint_action import make_update_joint_action_node
 from app.graph.nodes.learn_update import make_learn_update_node
 from app.graph.nodes.persist_trace import make_persist_trace_node
 
@@ -58,6 +59,7 @@ def build_graph(deps: Deps):
 
     g.add_node("decide_response_plan", make_decide_response_plan_node(deps))
     g.add_node("respond", make_respond_node(deps))
+    g.add_node("update_joint_action", make_update_joint_action_node(deps))
     g.add_node("learn_update", make_learn_update_node(deps))
     g.add_node("persist_trace", make_persist_trace_node(deps))
 
@@ -79,7 +81,8 @@ def build_graph(deps: Deps):
 
     # finalize
     g.add_edge("decide_response_plan", "respond")
-    g.add_edge("respond", "learn_update")
+    g.add_edge("respond", "update_joint_action")
+    g.add_edge("update_joint_action", "learn_update")
     g.add_edge("learn_update", "persist_trace")
     g.add_edge("persist_trace", END)
 
