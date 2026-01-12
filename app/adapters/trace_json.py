@@ -16,3 +16,9 @@ class JsonTraceAdapter(TracePort):
         path.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
         )
+
+    async def write_state(self, payload: dict[str, Any]) -> None:
+        path = self._dir / f"state.json"
+        path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )

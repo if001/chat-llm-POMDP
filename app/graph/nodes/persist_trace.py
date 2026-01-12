@@ -56,7 +56,8 @@ def make_persist_trace_node(deps: Deps):
         - turn_id ごとのstateをJSONファイルに保存
           - ターン毎に永続化すべきstateのみを保存
         """
-        await deps.trace.write_turn(inp.turn_id, inp.payload)
+        # await deps.trace.write_turn(inp.turn_id, inp.payload)
+        await deps.trace.write_state(inp.payload)
         return PersistTraceOut(status="persist_trace:ok")
 
     async def node(state: AgentState) -> dict:
