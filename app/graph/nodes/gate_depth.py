@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from app.models.state import AgentState, EpistemicState, Metrics, Predictions
 from app.models.types import DeepDecision
-from app.graph.utils.write import a_stream_writer
+from app.graph.utils.write import stream_writer
 
 
 @dataclass(frozen=True)
@@ -73,7 +73,7 @@ def make_gate_depth_node():
         }
         return GateDepthOut(status="gate_depth:ok", deep_decision=dd)
 
-    @a_stream_writer("gate")
+    @stream_writer("gate")
     def node(state: AgentState) -> dict:
         out = inner(
             GateDepthIn(

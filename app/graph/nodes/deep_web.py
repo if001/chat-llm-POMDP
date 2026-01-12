@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from app.core.deps import Deps
 from app.models.state import AgentState
 from app.models.types import DeepDecision
+from app.graph.utils.write import stream_writer
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,7 @@ def make_deep_web_node(deps: Deps):
             web_snippets=[],
         )
 
+    @stream_writer("deep_web")
     def node(state: AgentState) -> dict:
         out = inner(
             DeepWebIn(deep_decision=state["deep_decision"], query=state["user_input"])

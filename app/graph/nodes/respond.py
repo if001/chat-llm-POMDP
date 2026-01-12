@@ -28,6 +28,7 @@ from app.models.types import SourcesUsed
 from app.ports.llm import LLMPort
 from app.config.persona import PersonaConfig
 from app.graph.utils.write import a_stream_writer, write_token
+from app.graph.utils import utils
 
 
 @dataclass(frozen=True)
@@ -50,14 +51,6 @@ class RespondIn:
 class RespondOut:
     status: str
     response: Response
-
-
-def _get_content(result: Any) -> str:
-    if isinstance(result, str):
-        return result
-    if hasattr(result, "content"):
-        return str(result.content)
-    return str(result)
 
 
 def get_now() -> str:
@@ -214,7 +207,7 @@ def make_respond_node(deps: Deps):
             except Exception as e:
                 print("respond invoke error", e)
                 result = "error"
-            final_text = _get_content(result)
+            final_text = utils.get_content(result)
         resp: Response = {
             "final_text": final_text,
             "meta": {"turn_id": inp.turn_id},

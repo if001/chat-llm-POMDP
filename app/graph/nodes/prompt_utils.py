@@ -4,8 +4,13 @@ from typing import Any
 from app.models.state import (
     AffectiveState,
     AssumptionItem,
+    DeepDecision,
+    EpistemicState,
     JointContext,
+    Metrics,
+    Predictions,
     UnresolvedItem,
+    Observation,
 )
 
 
@@ -100,7 +105,7 @@ def format_unresolved_points(
     return "\n".join(lines)
 
 
-def format_observation(observation: dict[str, Any]) -> str:
+def format_observation(observation: Observation) -> str:
     events = observation.get("events", {})
     return "\n".join(
         [
@@ -118,7 +123,7 @@ def format_observation(observation: dict[str, Any]) -> str:
     )
 
 
-def format_metrics(metrics: dict[str, Any]) -> str:
+def format_metrics(metrics: Metrics) -> str:
     sources = metrics.get("sources_used", {})
     return "\n".join(
         [
@@ -135,7 +140,7 @@ def format_metrics(metrics: dict[str, Any]) -> str:
     )
 
 
-def format_predictions(predictions: dict[str, Any]) -> str:
+def format_predictions(predictions: Predictions) -> str:
     def _get_outputs(level: str) -> tuple[dict[str, Any], dict[str, Any]]:
         pred = predictions.get(level, {})
         outputs = pred.get("outputs", {}) if isinstance(pred, dict) else {}
@@ -186,7 +191,7 @@ def format_predictions(predictions: dict[str, Any]) -> str:
     )
 
 
-def format_deep_decision(deep_decision: dict[str, Any]) -> str:
+def format_deep_decision(deep_decision: DeepDecision) -> str:
     repair_plan = deep_decision.get("repair_plan", {})
     chain = deep_decision.get("deep_chain", {})
     return "\n".join(
@@ -225,7 +230,7 @@ def format_affective_state(affective_state: AffectiveState) -> str:
     )
 
 
-def format_epistemic_state(epistemic_state: dict[str, Any]) -> str:
+def format_epistemic_state(epistemic_state: EpistemicState) -> str:
     uncertainties = epistemic_state.get("uncertainties", {})
     high_stakes = epistemic_state.get("high_stakes", {})
     return "\n".join(

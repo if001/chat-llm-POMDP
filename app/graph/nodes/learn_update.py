@@ -6,9 +6,16 @@ import json
 from typing import Any
 
 from app.core.deps import Deps
-from app.models.state import AgentState, JointContext, PolicyState, UserAttribute, UserModel
+from app.models.state import (
+    AgentState,
+    JointContext,
+    PolicyState,
+    UserAttribute,
+    UserModel,
+)
 from app.graph.nodes.prompt_utils import format_wm_messages
 from app.ports.llm import LLMPort
+from app.graph.utils import utils
 
 
 @dataclass(frozen=True)
@@ -41,29 +48,29 @@ class LearnUpdateOut:
     last_turn_patch: dict
 
 
-def _get_content(result: Any) -> str:
-    if isinstance(result, str):
-        return result
-    if hasattr(result, "content"):
-        return str(result.content)
-    return str(result)
-
-
-def _parse_json(text: str) -> dict[str, Any]:
-    try:
-        payload = json.loads(text)
-    except json.JSONDecodeError:
-        return {}
-    if not isinstance(payload, dict):
-        return {}
-    return payload
-
-
-def _coerce_float(value: Any, fallback: float) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return fallback
+# def _get_content(result: Any) -> str:
+#     if isinstance(result, str):
+#         return result
+#     if hasattr(result, "content"):
+#         return str(result.content)
+#     return str(result)
+#
+#
+# def _parse_json(text: str) -> dict[str, Any]:
+#     try:
+#         payload = json.loads(text)
+#     except json.JSONDecodeError:
+#         return {}
+#     if not isinstance(payload, dict):
+#         return {}
+#     return payload
+#
+#
+# def _coerce_float(value: Any, fallback: float) -> float:
+#     try:
+#         return float(value)
+#     except (TypeError, ValueError):
+#         return fallback
 
 
 def _update_attribute(
@@ -166,17 +173,24 @@ async def _extract_user_model_updates(
     wm_messages: list[dict],
 ) -> dict[str, Any]:
     prompt = (
-        "あなたはユーザー属性更新の抽出器。"
-        "入力はユーザー発話と直近の会話履歴で、state.user_model更新に使う。"
-        "明示的に根拠がある情報のみを抽出し、推測は入れない。"
-        "出力はJSONのみ。"
-        "出力フォーマット: {"
-        '"basic": {"field": {"value": "文字列", "confidence": 0-1}}, '
-        '"preferences": {"field": {"value": "文字列", "confidence": 0-1}}, '
-        '"tendencies": {"field": {"value": "文字列", "confidence": 0-1}}, '
-        '"topics": {"field": {"value": "文字列", "confidence": 0-1}}, '
-        '"taboos": [{"value": "文字列", "confidence": 0-1}]'
-        "}。必要なキーだけ出力。"
+        "あなたはユーザー属性の抽出器\n"
+        "入力はユーザー発話と直近の会話履歴からユーザーの属性を抽出してください。\n"
+        "明示的に根拠がある情報のみを抽出し、推測は入れないこと。\n"
+        "<出力>\n"
+        "basic：ユーザーの基本的・比較的安定した属性や前提（名前、年齢、住んでいるエリア、所属、立場、役割、制約条件など）を表すフィールド集合\n"
+        "preferences：ユーザーが明示的または反復的に示した好み・選好（生活スタイル、好み、趣味、回答の長さ、進め方、スタイル等）を表すフィールド集合\n"
+        "tendencies：行動や反応の傾向として観測される特徴（慎重／即断、探索志向／結論志向など）を表すフィールド集合\n"
+        "topics：ユーザーが関心を示している、または継続的に言及する話題領域を表すフィールド集合\n"
+        "taboos：避けるべき話題・表現・踏み込みとして示唆された内容のリスト（高リスク要素）\n\n"
+        "【重要】前置きや装飾は不要で、必ずJSONのみを出力すること\n"
+        "出力フォーマット\n"
+        "{\n"
+        '"basic": {"field": {"value": "文字列", "confidence": 0-1}}, \n'
+        '"preferences": {"field": {"value": "文字列", "confidence": 0-1}}, \n'
+        '"tendencies": {"field": {"value": "文字列", "confidence": 0-1}}, \n'
+        '"topics": {"field": {"value": "文字列", "confidence": 0-1}}, \n'
+        '"taboos": [{"value": "文字列", "confidence": 0-1}]\n'
+        "}"
     )
     try:
         result = await small_llm.ainvoke(
@@ -185,17 +199,18 @@ async def _extract_user_model_updates(
                 {
                     "role": "user",
                     "content": (
-                        "入力:\n"
+                        "ユーザー属性を抽出してください\n"
+                        "【重要】前置きや装飾は不要で、必ずJSONのみを出力すること\n\n"
                         f"- user_input: {user_input}\n"
                         "- wm_messages: 直近の会話履歴(最大6件)。明示的根拠の確認に使う。\n"
-                        f"{format_wm_messages(wm_messages, limit=6)}"
+                        f"{format_wm_messages(wm_messages, limit=6)}\n"
                     ),
                 },
             ]
         )
     except Exception:
         return {}
-    return _parse_json(_get_content(result))
+    return utils.parse_llm_response(result)
 
 
 def _apply_user_model_updates(
@@ -214,7 +229,7 @@ def _apply_user_model_updates(
         for field, entry in section_updates.items():
             if not isinstance(entry, dict) or "value" not in entry:
                 continue
-            confidence = _coerce_float(entry.get("confidence", 0.6), 0.6)
+            confidence = utils.coerce_float(entry.get("confidence", 0.6), 0.6)
             if confidence < 0.4:
                 continue
             current_attr = section.get(field)
@@ -232,7 +247,7 @@ def _apply_user_model_updates(
         for entry in taboos_updates:
             if not isinstance(entry, dict) or "value" not in entry:
                 continue
-            confidence = _coerce_float(entry.get("confidence", 0.6), 0.6)
+            confidence = utils.coerce_float(entry.get("confidence", 0.6), 0.6)
             if confidence < 0.4:
                 continue
             taboos.append(
@@ -300,7 +315,11 @@ def make_learn_update_node(deps: Deps):
         if deep_used and prev_v is not None and rolling.get("V") is not None:
             if rolling["V"] < prev_v - 0.05:
                 theta += 0.05
-        if not deep_used and prev_pe is not None and rolling.get("PE_total") is not None:
+        if (
+            not deep_used
+            and prev_pe is not None
+            and rolling.get("PE_total") is not None
+        ):
             if rolling["PE_total"] > prev_pe + 0.05:
                 theta -= 0.05
         policy["theta_deep"] = max(0.6, min(2.0, theta))

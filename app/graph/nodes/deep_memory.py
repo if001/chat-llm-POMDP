@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from app.core.deps import Deps
 from app.models.state import AgentState
 from app.models.types import DeepDecision
+from app.graph.utils.write import a_stream_writer, stream_writer
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,7 @@ def make_deep_memory_node(deps: Deps):
             memory_snippets=[],
         )
 
+    @stream_writer("deep_memory")
     def node(state: AgentState) -> dict:
         out = inner(
             DeepMemoryIn(

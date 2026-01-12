@@ -27,6 +27,7 @@ from app.graph.nodes.prompt_utils import (
 )
 from app.ports.llm import LLMPort
 from app.graph.utils.write import a_stream_writer
+from app.graph.utils.utils import coerce_float, parse_llm_response
 
 
 @dataclass(frozen=True)
@@ -68,36 +69,11 @@ def _base_prediction(level: str, turn_id: int) -> PredictionCommon:
     }
 
 
-def _get_content(result: Any) -> str:
-    if isinstance(result, str):
-        return result
-    if hasattr(result, "content"):
-        return str(result.content)
-    return str(result)
-
-
-def _parse_json(text: str) -> dict[str, Any]:
-    try:
-        payload = json.loads(text)
-    except json.JSONDecodeError:
-        return {}
-    if not isinstance(payload, dict):
-        return {}
-    return payload
-
-
 def _merge_outputs(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
     merged = dict(base)
     for key, value in incoming.items():
         merged[key] = value
     return merged
-
-
-def _coerce_float(value: Any, fallback: float) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return fallback
 
 
 async def _run_small_llm_json(
@@ -113,10 +89,12 @@ async def _run_small_llm_json(
                 {"role": "user", "content": user_prompt},
             ]
         )
-    except Exception:
+    except Exception as e:
+        print("run small llm json error", e)
         return fallback
-    payload = _parse_json(_get_content(result))
+    payload = parse_llm_response(result)
     if not payload:
+        print("predict fallback")
         return fallback
     return payload
 
@@ -138,27 +116,26 @@ async def _predict_l0(
     payload = await _run_small_llm_json(
         small_llm,
         (
-            "あなたはL0(表層・スタイル予測)の分類器。"
-            "入力はこのターンのユーザー発話のみ。"
-            "表層的特徴(語感/文長/圧力)の推定に使う。"
-            "出力はJSONのみ。"
-            "出力フォーマット: "
-            "{"
-            '"outputs": {"style_fit": 0-1, "turn_pressure": 0-1, '
-            '"features": {"char_len": int, "question_mark_count": int}}, '
-            '"confidence": 0-1'
+            "あなたは表層・スタイル予測の分類器。\n"
+            "ユーザーの入力を用いて表層的特徴(語感/文長/圧力)の推定を行ってください。\n\n"
+            "【重要】前置きや装飾は不要で、必ずJSONのみを出力すること\n"
+            "出力フォーマット\n"
+            "{\n"
+            '"outputs": {"style_fit": 0-1, "turn_pressure": 0-1, \n'
+            '"features": {"char_len": int, "question_mark_count": int}}, \n'
+            '"confidence": 0-1\n'
             "}"
         ),
         (
-            "入力:\n"
-            f"- user_input: {user_input}\n"
-            "用途: L0のstyle_fit/turn_pressure/表層特徴量の推定。"
+            "ユーザーの入力を用いて表層的特徴(語感/文長/圧力)の推定を行ってください。\n"
+            "【重要】前置きや装飾は不要で、必ずJSONのみを出力すること\n"
+            f"user_input: {user_input}\n"
         ),
         {"outputs": fallback_outputs, "confidence": 0.0},
     )
     outputs = _merge_outputs(fallback_outputs, payload.get("outputs", {}))
     pred["outputs"] = outputs
-    pred["confidence"] = _coerce_float(payload.get("confidence", 0.0), 0.0)
+    pred["confidence"] = coerce_float(payload.get("confidence", 0.0), 0.0)
     return pred
 
 
@@ -176,26 +153,29 @@ async def _predict_l1(
     payload = await _run_small_llm_json(
         small_llm,
         (
-            "あなたはL1(発話行為/グラウンディング予測)の分類器。"
-            "入力はこのターンのユーザー発話。"
-            "発話行為とグラウンディング/repairの必要度を推定する。"
-            "出力はJSONのみ。"
-            "出力フォーマット: "
-            "{"
-            '"outputs": {"speech_act": "ask|answer|correct|vent|meta|other", '
-            '"grounding_need": 0-1, "repair_need": 0-1}, '
-            '"confidence": 0-1'
+            "あなたは発話行為/グラウンディング予測の分類器。\n"
+            "ユーザー入力を用いて発話行為/グラウンディング予測の分類を行ってください。\n"
+            "speech_act：ユーザー発話（または直近ターン）の主要な発話行為ラベル（質問・回答・訂正・吐露・メタ等）\n"
+            "grounding_need：意味の共有・前提合わせ（言い換え／確認）が必要な度合い（0=不要、1=強く必要）\n"
+            "repair_need：誤解やズレを解消するために修復手続き（確認質問・要約確認等）を起動すべき度合い（0-1）\n"
+            "confidence：推定（speech_act/need値）の確信度（投票一致率など、0-1）\n\n"
+            "【重要】前置きや装飾は不要で、必ずJSONのみを出力すること\n"
+            "出力フォーマット\n"
+            "{\n"
+            '"outputs": {"speech_act": "ask|answer|correct|vent|meta|other", \n'
+            '"grounding_need": 0-1, "repair_need": 0-1}, \n'
+            '"confidence": 0-1\n'
             "}"
         ),
         (
-            "入力:\n"
-            f"- user_input: {user_input}\n"
-            "用途: L1のspeech_act/grounding_need/repair_need推定。"
+            "ユーザー入力を用いて発話行為/グラウンディング予測の分類を行ってください。\n"
+            "【重要】前置きや装飾は不要で、必ずJSONのみを出力すること\n"
+            f"user_input: {user_input}\n"
         ),
         {"outputs": fallback_outputs, "confidence": 0.0},
     )
     pred["outputs"] = _merge_outputs(fallback_outputs, payload.get("outputs", {}))
-    pred["confidence"] = _coerce_float(payload.get("confidence", 0.0), 0.0)
+    pred["confidence"] = coerce_float(payload.get("confidence", 0.0), 0.0)
     return pred
 
 
@@ -215,27 +195,32 @@ async def _predict_l2(
     payload = await _run_small_llm_json(
         small_llm,
         (
-            "あなたはL2(局所意図/不確実性予測)の分類器。"
-            "入力はこのターンのユーザー発話。"
-            "局所意図と不確実性(U_semantic/U_epistemic/U_social)を推定する。"
-            "出力はJSONのみ。"
-            "出力フォーマット: "
-            "{"
-            '"outputs": {"local_intent": "短いラベル", '
-            '"U_semantic": 0-1, "U_epistemic": 0-1, "U_social": 0-1, '
-            '"need_question_design": true|false}, '
-            '"confidence": 0-1'
+            "あなたは局所意図/不確実性予測の分類器。"
+            "ユーザー入力を用いて意図/不確実性/質問設計必要性の推定を行ってください。\n"
+            "- local_intent：この発話でユーザーが達成したい局所目的の短いラベル（例：情報提供、依頼、意思決定、整理、苦情など）\n"
+            "- U_semantic：用語・指示対象・意図など「意味」が曖昧で誤解しやすい度合い（0-1）\n"
+            "- U_epistemic：事実・条件・根拠など「知識／情報」が不足している度合い（0-1）\n"
+            "- U_social：踏み込み・言い方・関係性など「社会的リスク」が不確かな度合い（0-1）\n"
+            "- need_question_design：不確実性を減らすために、質問の設計（優先順位付けや分岐）が必要かどうか\n"
+            "- confidence：推定（intent/U値/need）の確信度（0-1）\n\n"
+            "【重要】前置きや装飾は不要で、必ずJSONのみを出力すること\n"
+            "出力フォーマット\n"
+            "{\n"
+            '"outputs": {"local_intent": "短いラベル", \n'
+            '"U_semantic": 0-1, "U_epistemic": 0-1, "U_social": 0-1, \n'
+            '"need_question_design": true|false}, \n'
+            '"confidence": 0-1\n'
             "}"
         ),
         (
-            "入力:\n"
-            f"- user_input: {user_input}\n"
-            "用途: L2の意図/不確実性/質問設計必要性の推定。"
+            "意図/不確実性/質問設計必要性の推定を行ってください。\n"
+            "【重要】前置きや装飾は不要で、必ずJSONのみを出力すること\n"
+            "user_input: {user_input}\n"
         ),
         {"outputs": fallback_outputs, "confidence": 0.0},
     )
     pred["outputs"] = _merge_outputs(fallback_outputs, payload.get("outputs", {}))
-    pred["confidence"] = _coerce_float(payload.get("confidence", 0.0), 0.0)
+    pred["confidence"] = coerce_float(payload.get("confidence", 0.0), 0.0)
     return pred
 
 
@@ -243,8 +228,8 @@ async def _predict_l3(
     turn_id: int,
     user_input: str,
     common_ground: dict,
-    unresolved_points: list[dict],
-    observation: dict,
+    unresolved_points: list[UnresolvedItem],
+    observation: Observation,
     small_llm: LLMPort,
 ) -> PredictionCommon:
     pred = _base_prediction("L3", turn_id)
@@ -255,39 +240,47 @@ async def _predict_l3(
     payload = await _run_small_llm_json(
         small_llm,
         (
-            "あなたはL3(人物モデル/共通基盤の欠落予測)の分類器。"
-            "入力はユーザー発話と共通基盤/未解決/観測。"
-            "共通基盤の欠落候補やスタンス変化の兆候を推定する。"
-            "出力はJSONのみ。"
-            "出力フォーマット: "
-            "{"
-            '"outputs": {"cg_gap_candidates": ["短い候補"], '
-            '"stance_update_signal": "none|shift|strengthen|soften|other"}, '
-            '"confidence": 0-1'
+            "あなたは人物モデル/共通基盤の欠落予測の分類器\n"
+            "ユーザー入力を用いて人物モデル/共通基盤の欠落予測の分類器してください。\n"
+            "<入力>\n"
+            "- common_ground: 共有前提の一覧。欠落候補の推定\n"
+            "- unresolved_points: 未解決の論点。ギャップ候補の推定\n"
+            "- observation: 直近の反応分類。スタンス変化推定\n\n"
+            "<出力>\n"
+            "- cg_gap_candidates：共有不足（common ground の穴）として疑わしい点の短い候補リスト（最大数件）\n"
+            "- stance_update_signal：対人距離・警戒・丁寧さの調整方向（none=維持、shift=変化兆候、strengthen=警戒強め、soften=緩和など）\n"
+            "- confidence：推定（cg_gap/stance信号）の確信度（0-1）\n\n"
+            "【重要】前置きや装飾は不要で、必ずJSONのみを出力すること\n"
+            "出力フォーマット\n"
+            "{\n"
+            '"outputs": {"cg_gap_candidates": ["短い候補"], \n'
+            '"stance_update_signal": "none|shift|strengthen|soften|other"}, \n'
+            '"confidence": 0-1\n'
             "}"
         ),
         (
-            "入力:\n"
+            "ユーザー入力を用いて人物モデル/共通基盤の欠落予測の分類器してください。\n"
+            "【重要】前置きや装飾は不要で、必ずJSONのみを出力すること\n"
             f"- user_input: {user_input}\n"
             "- common_ground: 共有前提の一覧。欠落候補の推定に使う。\n"
             f"{format_common_ground(common_ground)}\n"
             "- unresolved_points: 未解決の論点。ギャップ候補の推定に使う。\n"
             f"{format_unresolved_points(unresolved_points)}\n"
             "- observation: 直近の反応分類。スタンス変化推定に使う。\n"
-            f"{format_observation(observation)}"
+            f"{format_observation(observation)}\n"
         ),
         {"outputs": fallback_outputs, "confidence": 0.0},
     )
     pred["outputs"] = _merge_outputs(fallback_outputs, payload.get("outputs", {}))
-    pred["confidence"] = _coerce_float(payload.get("confidence", 0.0), 0.0)
+    pred["confidence"] = coerce_float(payload.get("confidence", 0.0), 0.0)
     return pred
 
 
 async def _predict_l4(
     turn_id: int,
     user_input: str,
-    joint_context: dict,
-    metrics_prev: dict,
+    joint_context: JointContext,
+    metrics_prev: Metrics,
     small_llm: LLMPort,
 ) -> PredictionCommon:
     pred = _base_prediction("L4", turn_id)
@@ -298,29 +291,35 @@ async def _predict_l4(
     payload = await _run_small_llm_json(
         small_llm,
         (
-            "あなたはL4(枠組み再設計/長期価値予測)のトリガ判定。"
-            "入力はユーザー発話とjoint_contextと前回metrics。"
-            "枠組み崩壊や再交渉の必要度を推定する。"
-            "出力はJSONのみ。"
-            "出力フォーマット: "
-            "{"
-            '"outputs": {"l4_trigger_score": 0-1, '
-            '"frame_hypothesis": "explore|decide|execute|reflect|vent"}, '
-            '"confidence": 0-1'
+            "あなたは枠組み再設計/長期価値予測のトリガ判定器\n"
+            "ユーザー入力を用いて枠組み再設計/長期価値予測のトリガ判定を行ってください\n"
+            "<入力>\n"
+            "- joint_context: 現在の枠組み/役割/規範。frame仮説の推定に使う。\n"
+            "- metrics_prev: 前回指標(PE,ΔI/ΔG/ΔJ等)。トリガ判定に使う。\n"
+            "<出力>\n"
+            "- l4_trigger_score：枠組みのズレや停滞が強く、メタ的な再調整（deep_frame）が必要な度合い（0-1）\n"
+            "- frame_hypothesis：現在（または望ましい）会話枠組みの推定（explore/decide/execute/reflect/vent）\n"
+            "- confidence：このL4推定（trigger/frame仮説）の確信度（0-1）\n\n"
+            "【重要】前置きや装飾は不要で、必ずJSONのみを出力すること\n"
+            "出力フォーマット\n"
+            "{\n"
+            '"outputs": {"l4_trigger_score": 0-1, \n'
+            '"frame_hypothesis": "explore|decide|execute|reflect|vent"}, \n'
+            '"confidence": 0-1\n'
             "}"
         ),
         (
-            "入力:\n"
+            "ユーザー入力を用いて枠組み再設計/長期価値予測のトリガ判定を行ってください\n"
             f"- user_input: {user_input}\n"
             "- joint_context: 現在の枠組み/役割/規範。frame仮説の推定に使う。\n"
             f"{format_joint_context(joint_context)}\n"
             "- metrics_prev: 前回指標(PE,ΔI/ΔG/ΔJ等)。トリガ判定に使う。\n"
-            f"{format_metrics(metrics_prev)}"
+            f"{format_metrics(metrics_prev)}\n"
         ),
         {"outputs": fallback_outputs, "confidence": 0.0},
     )
     pred["outputs"] = _merge_outputs(fallback_outputs, payload.get("outputs", {}))
-    pred["confidence"] = _coerce_float(payload.get("confidence", 0.0), 0.0)
+    pred["confidence"] = coerce_float(payload.get("confidence", 0.0), 0.0)
     return pred
 
 
