@@ -52,7 +52,8 @@ class SourcesUsed(TypedDict):
 
 class PredictionCommon(TypedDict):
     level: Level
-    depth: Depth    outputs: dict
+    depth: Depth
+    outputs: dict
     confidence: float
     evidence: dict
     timestamp_turn: int
