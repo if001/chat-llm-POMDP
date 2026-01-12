@@ -189,6 +189,25 @@ class Response(TypedDict):
     meta: dict[str, Any]  # sources_label 等
 
 
+# ====== User Model ======
+
+
+class UserAttribute(TypedDict):
+    value: str
+    confidence: float
+    evidence: list[str]
+    last_updated_turn: int
+
+
+class UserModel(TypedDict):
+    basic: dict[str, UserAttribute]
+    preferences: dict[str, UserAttribute]
+    tendencies: dict[str, UserAttribute]
+    topics: dict[str, UserAttribute]
+    taboos: list[UserAttribute]
+    last_updated_turn: int
+
+
 # ====== Policy / Learning Params ======
 
 
@@ -234,7 +253,7 @@ class AgentState(TypedDict):
     epistemic_state: EpistemicState
 
     # === user model ===
-    user_model: dict[str, Any]
+    user_model: UserModel
 
     # === observation / metrics ===
     observation: Observation
@@ -247,6 +266,8 @@ class AgentState(TypedDict):
     # === action / response ===
     action: Action
     response: Response
+    memory_snippets: list[dict[str, Any]]
+    web_snippets: list[dict[str, Any]]
 
     # === learning params ===
     policy: PolicyState
@@ -290,8 +311,9 @@ def initial_state() -> AgentState:
         },
         "user_model": {
             "basic": {},
+            "preferences": {},
             "tendencies": {},
-            "topic_preferences": {},
+            "topics": {},
             "taboos": [],
             "last_updated_turn": 0,
         },
@@ -337,6 +359,8 @@ def initial_state() -> AgentState:
             "used_depths": ["shallow"],
         },
         "response": {"final_text": "", "meta": {}},
+        "memory_snippets": [],
+        "web_snippets": [],
         "policy": {
             "theta_deep": 1.2,
             "deep_history": [],

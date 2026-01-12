@@ -16,7 +16,22 @@ ReactionType = Literal[
 AckType = Literal["explicit_yes", "implicit_yes", "mixed", "no", "none"]
 
 ResponseMode = Literal[
-    "explain", "ask", "offer_options", "summarize", "repair", "meta_frame"
+    "explain",
+    "ask",
+    "offer_options",
+    "summarize",
+    "repair",
+    "meta_frame",
+    "clarify",
+    "offer_hypotheses",
+    "compare",
+    "explain_steps",
+    "confirm",
+    "check_progress",
+    "mirror",
+    "ask_open",
+    "acknowledge",
+    "minimal_ask",
 ]
 
 DeepReason = Literal[

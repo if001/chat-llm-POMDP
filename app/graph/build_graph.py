@@ -46,19 +46,19 @@ def build_graph(deps: Deps):
 
     # nodes
     g.add_node("ingest_turn", make_ingest_turn_node())
-    g.add_node("observe_reaction", make_observe_reaction_node())
-    g.add_node("predict_shallow", make_predict_shallow_node())
+    g.add_node("observe_reaction", make_observe_reaction_node(deps))
+    g.add_node("predict_shallow", make_predict_shallow_node(deps))
     g.add_node("compute_metrics", make_compute_metrics_node())
     g.add_node("gate_depth", make_gate_depth_node())
 
-    g.add_node("deep_repair", make_deep_repair_node())
+    g.add_node("deep_repair", make_deep_repair_node(deps))
     g.add_node("deep_memory", make_deep_memory_node(deps))
     g.add_node("deep_web", make_deep_web_node(deps))
-    g.add_node("deep_frame", make_deep_frame_node())
+    g.add_node("deep_frame", make_deep_frame_node(deps))
 
-    g.add_node("decide_response_plan", make_decide_response_plan_node())
+    g.add_node("decide_response_plan", make_decide_response_plan_node(deps))
     g.add_node("respond", make_respond_node(deps))
-    g.add_node("learn_update", make_learn_update_node())
+    g.add_node("learn_update", make_learn_update_node(deps))
     g.add_node("persist_trace", make_persist_trace_node(deps))
 
     # edges (linear core)
