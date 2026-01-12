@@ -17,6 +17,7 @@ class DecidePlanIn:
     epistemic_state: dict
     predictions: dict
     metrics: dict
+    affective_state: dict
 
 
 @dataclass(frozen=True)
@@ -54,11 +55,12 @@ async def _decide_action(
     small_llm: LLMPort,
     inp: DecidePlanIn,
     fallback_action: Action,
+    allowed_modes: list[str],
 ) -> Action:
     prompt = (
         "Return JSON with keys: response_mode, questions_asked, confirm_questions, "
         "did_memory_search, did_web_search. "
-        "response_mode is one of explain, ask, offer_options, summarize, repair, meta_frame."
+        "response_mode must be one of the allowed_modes list."
     )
     try:
         result = await small_llm.ainvoke(
@@ -70,7 +72,9 @@ async def _decide_action(
                         f"joint_context: {inp.joint_context}\n"
                         f"deep_decision: {inp.deep_decision}\n"
                         f"predictions: {inp.predictions}\n"
-                        f"metrics: {inp.metrics}"
+                        f"metrics: {inp.metrics}\n"
+                        f"affective_state: {inp.affective_state}\n"
+                        f"allowed_modes: {allowed_modes}"
                     ),
                 },
             ]
@@ -81,7 +85,9 @@ async def _decide_action(
     if not payload:
         return fallback_action
     action = dict(fallback_action)
-    action["response_mode"] = payload.get("response_mode", action["response_mode"])
+    response_mode = payload.get("response_mode", action["response_mode"])
+    if response_mode in allowed_modes:
+        action["response_mode"] = response_mode
     action["questions_asked"] = _coerce_int(
         payload.get("questions_asked", action["questions_asked"]),
         action["questions_asked"],
@@ -109,10 +115,18 @@ def make_decide_response_plan_node(deps: Deps):
           - memory/web を使う（計画/意図）かどうか
         """
         norms = inp.joint_context["norms"]
+        frame = inp.joint_context["frame"]
+        allowed_modes = {
+            "explore": ["ask", "summarize", "clarify", "offer_hypotheses"],
+            "decide": ["summarize", "offer_options", "compare", "ask"],
+            "execute": ["explain_steps", "confirm", "check_progress"],
+            "reflect": ["summarize", "mirror", "ask_open"],
+            "vent": ["mirror", "acknowledge", "minimal_ask"],
+        }.get(frame, ["ask", "summarize"])
         fallback_action: Action = {
             "chosen_frame": inp.joint_context["frame"],
             "chosen_role_leader": inp.joint_context["roles"]["leader"],
-            "response_mode": response_mode,
+            "response_mode": allowed_modes[0],
             "questions_asked": 0,
             "question_budget": inp.joint_context["norms"]["question_budget"],
             "confirm_questions": list(repair_plan.get("questions", [])),
@@ -121,7 +135,9 @@ def make_decide_response_plan_node(deps: Deps):
             "used_levels": used_levels,
             "used_depths": used_depths or ["shallow"],
         }
-        action = await _decide_action(deps.small_llm, inp, fallback_action)
+        action = await _decide_action(
+            deps.small_llm, inp, fallback_action, allowed_modes
+        )
         return DecidePlanOut(status="decide_response_plan:ok", action=action)
 
     async def node(state: AgentState) -> dict:
@@ -132,6 +148,7 @@ def make_decide_response_plan_node(deps: Deps):
                 epistemic_state=state["epistemic_state"],
                 predictions=state["predictions"],
                 metrics=state["metrics"],
+                affective_state=state["affective_state"],
             )
         )
         return {"action": out.action}

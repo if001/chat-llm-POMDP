@@ -190,6 +190,13 @@ def make_learn_update_node(deps: Deps):
             inp.user_model, updates, inp.user_input, inp.turn_id
         )
 
+        updates = await _extract_user_model_updates(
+            deps.small_llm, inp.user_input, inp.wm_messages
+        )
+        user_model = _apply_user_model_updates(
+            inp.user_model, updates, inp.user_input, inp.turn_id
+        )
+
         last_turn_patch = {
             "prev_assistant_text": inp.response.get("final_text", ""),
             "prev_action": dict(inp.action),
