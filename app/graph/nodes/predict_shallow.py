@@ -9,6 +9,13 @@ from typing import Any
 from app.core.deps import Deps
 from app.models.state import AgentState, EpistemicUncertainty
 from app.models.types import PredictionCommon
+from app.graph.nodes.prompt_utils import (
+    format_common_ground,
+    format_joint_context,
+    format_metrics,
+    format_observation,
+    format_unresolved_points,
+)
 from app.ports.llm import LLMPort
 
 
@@ -120,8 +127,23 @@ async def _predict_l0(
     }
     payload = await _run_small_llm_json(
         small_llm,
-        "Return JSON with keys: outputs (style_fit, turn_pressure, features) and confidence (0-1).",
-        f"user_input: {user_input}",
+        (
+            "あなたはL0(表層・スタイル予測)の分類器。"
+            "入力はこのターンのユーザー発話のみ。"
+            "表層的特徴(語感/文長/圧力)の推定に使う。"
+            "出力はJSONのみ。"
+            "出力フォーマット: "
+            "{"
+            '"outputs": {"style_fit": 0-1, "turn_pressure": 0-1, '
+            '"features": {"char_len": int, "question_mark_count": int}}, '
+            '"confidence": 0-1'
+            "}"
+        ),
+        (
+            "入力:\n"
+            f"- user_input: {user_input}\n"
+            "用途: L0のstyle_fit/turn_pressure/表層特徴量の推定。"
+        ),
         {"outputs": fallback_outputs, "confidence": 0.0},
     )
     outputs = _merge_outputs(fallback_outputs, payload.get("outputs", {}))
@@ -143,8 +165,23 @@ async def _predict_l1(
     }
     payload = await _run_small_llm_json(
         small_llm,
-        "Return JSON with keys: outputs (speech_act, grounding_need, repair_need) and confidence (0-1).",
-        f"user_input: {user_input}",
+        (
+            "あなたはL1(発話行為/グラウンディング予測)の分類器。"
+            "入力はこのターンのユーザー発話。"
+            "発話行為とグラウンディング/repairの必要度を推定する。"
+            "出力はJSONのみ。"
+            "出力フォーマット: "
+            "{"
+            '"outputs": {"speech_act": "ask|answer|correct|vent|meta|other", '
+            '"grounding_need": 0-1, "repair_need": 0-1}, '
+            '"confidence": 0-1'
+            "}"
+        ),
+        (
+            "入力:\n"
+            f"- user_input: {user_input}\n"
+            "用途: L1のspeech_act/grounding_need/repair_need推定。"
+        ),
         {"outputs": fallback_outputs, "confidence": 0.0},
     )
     pred["outputs"] = _merge_outputs(fallback_outputs, payload.get("outputs", {}))
@@ -167,8 +204,24 @@ async def _predict_l2(
     }
     payload = await _run_small_llm_json(
         small_llm,
-        "Return JSON with keys: outputs (local_intent, U_semantic, U_epistemic, U_social, need_question_design) and confidence (0-1).",
-        f"user_input: {user_input}",
+        (
+            "あなたはL2(局所意図/不確実性予測)の分類器。"
+            "入力はこのターンのユーザー発話。"
+            "局所意図と不確実性(U_semantic/U_epistemic/U_social)を推定する。"
+            "出力はJSONのみ。"
+            "出力フォーマット: "
+            "{"
+            '"outputs": {"local_intent": "短いラベル", '
+            '"U_semantic": 0-1, "U_epistemic": 0-1, "U_social": 0-1, '
+            '"need_question_design": true|false}, '
+            '"confidence": 0-1'
+            "}"
+        ),
+        (
+            "入力:\n"
+            f"- user_input: {user_input}\n"
+            "用途: L2の意図/不確実性/質問設計必要性の推定。"
+        ),
         {"outputs": fallback_outputs, "confidence": 0.0},
     )
     pred["outputs"] = _merge_outputs(fallback_outputs, payload.get("outputs", {}))
@@ -191,11 +244,27 @@ async def _predict_l3(
     }
     payload = await _run_small_llm_json(
         small_llm,
-        "Return JSON with keys: outputs (cg_gap_candidates, stance_update_signal) and confidence (0-1).",
         (
-            "user_input: "
-            f"{user_input}\ncommon_ground: {common_ground}\n"
-            f"unresolved_points: {unresolved_points}\nobservation: {observation}"
+            "あなたはL3(人物モデル/共通基盤の欠落予測)の分類器。"
+            "入力はユーザー発話と共通基盤/未解決/観測。"
+            "共通基盤の欠落候補やスタンス変化の兆候を推定する。"
+            "出力はJSONのみ。"
+            "出力フォーマット: "
+            "{"
+            '"outputs": {"cg_gap_candidates": ["短い候補"], '
+            '"stance_update_signal": "none|shift|strengthen|soften|other"}, '
+            '"confidence": 0-1'
+            "}"
+        ),
+        (
+            "入力:\n"
+            f"- user_input: {user_input}\n"
+            "- common_ground: 共有前提の一覧。欠落候補の推定に使う。\n"
+            f"{format_common_ground(common_ground)}\n"
+            "- unresolved_points: 未解決の論点。ギャップ候補の推定に使う。\n"
+            f"{format_unresolved_points(unresolved_points)}\n"
+            "- observation: 直近の反応分類。スタンス変化推定に使う。\n"
+            f"{format_observation(observation)}"
         ),
         {"outputs": fallback_outputs, "confidence": 0.0},
     )
@@ -218,8 +287,26 @@ async def _predict_l4(
     }
     payload = await _run_small_llm_json(
         small_llm,
-        "Return JSON with keys: outputs (l4_trigger_score, frame_hypothesis) and confidence (0-1).",
-        f"user_input: {user_input}\njoint_context: {joint_context}\nmetrics_prev: {metrics_prev}",
+        (
+            "あなたはL4(枠組み再設計/長期価値予測)のトリガ判定。"
+            "入力はユーザー発話とjoint_contextと前回metrics。"
+            "枠組み崩壊や再交渉の必要度を推定する。"
+            "出力はJSONのみ。"
+            "出力フォーマット: "
+            "{"
+            '"outputs": {"l4_trigger_score": 0-1, '
+            '"frame_hypothesis": "explore|decide|execute|reflect|vent"}, '
+            '"confidence": 0-1'
+            "}"
+        ),
+        (
+            "入力:\n"
+            f"- user_input: {user_input}\n"
+            "- joint_context: 現在の枠組み/役割/規範。frame仮説の推定に使う。\n"
+            f"{format_joint_context(joint_context)}\n"
+            "- metrics_prev: 前回指標(PE,ΔI/ΔG/ΔJ等)。トリガ判定に使う。\n"
+            f"{format_metrics(metrics_prev)}"
+        ),
         {"outputs": fallback_outputs, "confidence": 0.0},
     )
     pred["outputs"] = _merge_outputs(fallback_outputs, payload.get("outputs", {}))

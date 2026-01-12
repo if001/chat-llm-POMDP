@@ -7,6 +7,7 @@ from typing import Any
 
 from app.core.deps import Deps
 from app.models.state import AgentState, Observation
+from app.graph.nodes.prompt_utils import format_action
 from app.ports.llm import LLMPort
 
 
@@ -64,9 +65,19 @@ async def _classify_reaction(
     fallback: Observation,
 ) -> Observation:
     prompt = (
-        "Return JSON with keys: reaction_type, ack_type, events "
-        "(E_correct, E_refuse, E_clarify, E_miss, E_frame_break, E_overstep), "
-        "and confidence (0-1)."
+        "あなたは前ターンへの反応分類器。"
+        "入力は今回のユーザー発話、前ターンのassistant出力、前ターンのaction。"
+        "reaction_type/ack_type/eventsを判定する。"
+        "出力はJSONのみ。"
+        "出力フォーマット: {"
+        '"reaction_type": "accept|clarify|correct|refuse|defer|topic_shift|mixed", '
+        '"ack_type": "explicit_yes|implicit_yes|mixed|no|none", '
+        '"events": {'
+        '"E_correct": 0|1, "E_refuse": 0|1, "E_clarify": 0|1, '
+        '"E_miss": 0|1, "E_frame_break": 0|1, "E_overstep": 0|1'
+        "}, "
+        '"confidence": 0-1'
+        "}"
     )
     try:
         result = await small_llm.ainvoke(
@@ -75,9 +86,12 @@ async def _classify_reaction(
                 {
                     "role": "user",
                     "content": (
-                        f"user_input: {user_input}\n"
-                        f"prev_assistant_text: {prev_assistant_text}\n"
-                        f"prev_action: {prev_action}"
+                        "入力:\n"
+                        f"- user_input: {user_input}\n"
+                        "- prev_assistant_text: 直前のassistant発話。反応の対象。\n"
+                        f"{prev_assistant_text}\n"
+                        "- prev_action: 直前の応答計画。反応の妥当性判断に使う。\n"
+                        f"{format_action(prev_action)}"
                     ),
                 },
             ]
@@ -92,9 +106,13 @@ async def _classify_reaction(
     events = payload.get("events", {})
     fallback_events = fallback["events"]
     merged_events = {
-        "E_correct": _coerce_int(events.get("E_correct", fallback_events["E_correct"]), 0),
+        "E_correct": _coerce_int(
+            events.get("E_correct", fallback_events["E_correct"]), 0
+        ),
         "E_refuse": _coerce_int(events.get("E_refuse", fallback_events["E_refuse"]), 0),
-        "E_clarify": _coerce_int(events.get("E_clarify", fallback_events["E_clarify"]), 0),
+        "E_clarify": _coerce_int(
+            events.get("E_clarify", fallback_events["E_clarify"]), 0
+        ),
         "E_miss": _coerce_int(events.get("E_miss", fallback_events["E_miss"]), 0),
         "E_frame_break": _coerce_int(
             events.get("E_frame_break", fallback_events["E_frame_break"]), 0
@@ -108,7 +126,9 @@ async def _classify_reaction(
         "reaction_type": payload.get("reaction_type", fallback["reaction_type"]),
         "ack_type": payload.get("ack_type", fallback["ack_type"]),
         "events": merged_events,
-        "confidence": _coerce_float(payload.get("confidence", fallback["confidence"]), 0.0),
+        "confidence": _coerce_float(
+            payload.get("confidence", fallback["confidence"]), 0.0
+        ),
     }
 
 
@@ -128,7 +148,7 @@ def make_observe_reaction_node(deps: Deps):
                 "E_correct": 0,
                 "E_refuse": 0,
                 "E_clarify": 0,
-                "E_miss": miss,
+                "E_miss": 0,
                 "E_frame_break": 0,
                 "E_overstep": 0,
             },

@@ -8,6 +8,7 @@ from typing import Any
 from app.core.deps import Deps
 from app.models.state import AgentState
 from app.models.types import DeepDecision
+from app.graph.nodes.prompt_utils import format_wm_messages
 from app.ports.llm import LLMPort
 
 
@@ -50,8 +51,15 @@ async def _plan_repair(
     wm_messages: list[dict],
 ) -> dict[str, Any]:
     prompt = (
-        "Return JSON with keys: strategy, questions (list), optionality (bool). "
-        "Keep questions short."
+        "あなたはdeep_repairの計画器。"
+        "入力はユーザー発話と直近の会話履歴。"
+        "意味ズレや確認不足を埋めるための修復方針を決める。"
+        "出力はJSONのみ。"
+        "出力フォーマット: {"
+        '"strategy": "短いラベル", '
+        '"questions": ["短い確認質問"], '
+        '"optionality": true|false'
+        "}。質問は短く1〜3件。"
     )
     try:
         result = await small_llm.ainvoke(
@@ -59,7 +67,12 @@ async def _plan_repair(
                 {"role": "system", "content": prompt},
                 {
                     "role": "user",
-                    "content": f"user_input: {user_input}\nwm_messages: {wm_messages}",
+                    "content": (
+                        "入力:\n"
+                        f"- user_input: {user_input}\n"
+                        "- wm_messages: 直近の会話履歴(修復対象の直前文脈)。\n"
+                        f"{format_wm_messages(wm_messages)}"
+                    ),
                 },
             ]
         )

@@ -8,6 +8,11 @@ from typing import Any
 from app.core.deps import Deps
 from app.models.state import AgentState, JointContext
 from app.models.types import DeepDecision
+from app.graph.nodes.prompt_utils import (
+    format_joint_context,
+    format_metrics,
+    format_observation,
+)
 from app.ports.llm import LLMPort
 
 
@@ -51,8 +56,15 @@ async def _suggest_frame_update(
     metrics: dict,
 ) -> dict[str, Any]:
     prompt = (
-        "Return JSON with keys: frame, question_budget, summarize_before_advice, "
-        "max_response_length. frame should be one of explore, decide, execute, reflect, vent."
+        "あなたは枠組み再設計(L4)の提案器。"
+        "入力はjoint_context/observation/metricsで、枠組みや運用normsの調整に使う。"
+        "出力はJSONのみ。"
+        "出力フォーマット: {"
+        '"frame": "explore|decide|execute|reflect|vent", '
+        '"question_budget": int, '
+        '"summarize_before_advice": true|false, '
+        '"max_response_length": int'
+        "}"
     )
     try:
         result = await small_llm.ainvoke(
@@ -61,8 +73,13 @@ async def _suggest_frame_update(
                 {
                     "role": "user",
                     "content": (
-                        f"joint_context: {joint_context}\n"
-                        f"observation: {observation}\nmetrics: {metrics}"
+                        "入力:\n"
+                        "- joint_context: 現在の枠組み/役割/規範。再交渉の基準に使う。\n"
+                        f"{format_joint_context(joint_context)}\n"
+                        "- observation: 反応分類。枠組み崩壊や抵抗兆候の判定に使う。\n"
+                        f"{format_observation(observation)}\n"
+                        "- metrics: 直近指標(PE/ΔI/ΔG/ΔJ/risk等)。調整強度の判断に使う。\n"
+                        f"{format_metrics(metrics)}"
                     ),
                 },
             ]

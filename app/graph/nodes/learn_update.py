@@ -7,6 +7,7 @@ from typing import Any
 
 from app.core.deps import Deps
 from app.models.state import AgentState, JointContext, PolicyState, UserAttribute, UserModel
+from app.graph.nodes.prompt_utils import format_wm_messages
 from app.ports.llm import LLMPort
 
 
@@ -92,12 +93,17 @@ async def _extract_user_model_updates(
     wm_messages: list[dict],
 ) -> dict[str, Any]:
     prompt = (
-        "Extract user profile updates from the conversation. "
-        "Return JSON with optional keys: "
-        "basic (dict of field-> {value, confidence}), "
-        "preferences (dict), tendencies (dict), topics (dict), "
-        "taboos (list of {value, confidence}). "
-        "Use confidence 0-1. Only include fields that are explicitly supported."
+        "あなたはユーザー属性更新の抽出器。"
+        "入力はユーザー発話と直近の会話履歴で、state.user_model更新に使う。"
+        "明示的に根拠がある情報のみを抽出し、推測は入れない。"
+        "出力はJSONのみ。"
+        "出力フォーマット: {"
+        '"basic": {"field": {"value": "文字列", "confidence": 0-1}}, '
+        '"preferences": {"field": {"value": "文字列", "confidence": 0-1}}, '
+        '"tendencies": {"field": {"value": "文字列", "confidence": 0-1}}, '
+        '"topics": {"field": {"value": "文字列", "confidence": 0-1}}, '
+        '"taboos": [{"value": "文字列", "confidence": 0-1}]'
+        "}。必要なキーだけ出力。"
     )
     try:
         result = await small_llm.ainvoke(
@@ -105,7 +111,12 @@ async def _extract_user_model_updates(
                 {"role": "system", "content": prompt},
                 {
                     "role": "user",
-                    "content": f"user_input: {user_input}\nwm_messages: {wm_messages[-6:]}",
+                    "content": (
+                        "入力:\n"
+                        f"- user_input: {user_input}\n"
+                        "- wm_messages: 直近の会話履歴(最大6件)。明示的根拠の確認に使う。\n"
+                        f"{format_wm_messages(wm_messages, limit=6)}"
+                    ),
                 },
             ]
         )

@@ -6,6 +6,12 @@ from typing import Any
 
 from app.core.deps import Deps
 from app.models.state import AgentState, Response
+from app.graph.nodes.prompt_utils import (
+    format_deep_decision,
+    format_joint_context,
+    format_predictions,
+    format_snippets,
+)
 from app.ports.llm import LLMPort
 from app.config.persona import PersonaConfig
 
@@ -43,37 +49,23 @@ async def _generate_response(
     inp: RespondIn,
     label: str,
 ) -> str:
-    norms = inp.joint_context.get("norms", {})
     response_mode = inp.action.get("response_mode")
     confirm_questions = inp.action.get("confirm_questions", [])
-
-    repair_plan = inp.deep_decision.get("repair_plan", {})
     frame = inp.joint_context.get("frame")
     leader = inp.joint_context.get("roles", {}).get("leader")
-    sources_context = []
-    if inp.memory_snippets:
-        sources_context.append(f"memory_snippets: {inp.memory_snippets}")
-    if inp.web_snippets:
-        sources_context.append(f"web_snippets: {inp.web_snippets}")
-    sources_block = (
-        "\n".join(sources_context) if sources_context else "no external sources"
+    sources_block = "\n".join(
+        [
+            format_snippets(inp.memory_snippets, "memory_snippets"),
+            format_snippets(inp.web_snippets, "web_snippets"),
+        ]
     )
-    persona = PersonaConfig.default()
-    _traits = "\n".join([f"- {t}" for t in persona.traits])
     prompt = (
-        f"あなたは[{persona.name}]という名前の親切なアシスタントです。\n"
-        "\n"
-        "応答モードが与えられます。現在の応答モードに従い、以下の設定に準じて応答してください。\n"
-        "explore：状況や前提を共有するために情報を集める\n"
-        "decide：複数の選択肢を比較し、判断や方針を決める\n"
-        "execute：決まった方針を具体的な手順や行動に落とす\n"
-        "reflect：経験や考えを振り返り、意味づけや整理を行う\n"
-        "vent：結論を急がず、感情の表出や共有そのものを目的とする\n"
-        "\n"
-        "もしmemory/web snippetsが提供されている場合、応答をそれらに基づいて構築し、暗黙的に引用してください。\n"
         "ただし憶測で情報を追加しないこと。\n\n"
-        "以下のPersonaとtoneを必ず厳守してください。\n"
-        f"{_traits}"
+        "あなたは対話エージェントの応答生成器。"
+        "入力はユーザー発話、joint_context、action、deep_decision、predictions、sources。"
+        "design_docの共同枠組み・予測階層に従い、response_modeとnormsを守って応答する。"
+        "memory/webの断片がある場合は内容に基づいて応答し、説明は具体的にする。"
+        "出力は最終応答文のみ。参照ラベルや余計なメタ文は出力しない。"
     )
 
     try:
@@ -83,19 +75,22 @@ async def _generate_response(
                 {
                     "role": "user",
                     "content": (
-                        f"現在の応答モードは[{response_mode}]です。\n"
-                        f"{norms['question_budget']}: 返答に含めることのできる質問の数\n"
-                        f"{norms['max_response_length']}: 返答の最大文字数\n"
-                        f"{norms['optionality_required']}: 提案や指示を行う際に、選択肢提示を基本とするかどうか\n"
-                        f"{norms['summarize_before_advice']}: 助言や提案の前に、理解確認のための要約を挟むことを要求するかどうか\n"
-                        f"{norms['stance_sensitive']}: 相手との距離感や警戒度に応じて、踏み込みや表現を抑制すべきかどうか\n"
-                        "\n"
-                        f"confirm_questions: {confirm_questions}\n"
-                        f"repair_plan: {repair_plan}\n"
-                        # f"predictions: {inp.predictions}\n"
-                        f"sources: {sources_block}\n"
-                        f"user_input: {inp.user_input}\n"
-                        "Return the assistant response in Japanese."
+                        "入力:\n"
+                        f"- user_input: {inp.user_input}\n"
+                        "- joint_context: 枠組み/役割/規範。文体と応答方針の制約。\n"
+                        f"{format_joint_context(inp.joint_context)}\n"
+                        f"- frame: {frame}\n"
+                        f"- leader: {leader}\n"
+                        "- action.response_mode: 応答の型(質問/要約/比較など)。\n"
+                        f"{response_mode}\n"
+                        "- action.confirm_questions: 確認質問の候補。必要なら反映。\n"
+                        f"{', '.join(str(q) for q in confirm_questions) or 'なし'}\n"
+                        "- deep_decision: repair_planなど。修復方針に従う。\n"
+                        f"{format_deep_decision(inp.deep_decision)}\n"
+                        "- predictions: L0-L4の予測。語調/不確実性/枠組みの判断材料。\n"
+                        f"{format_predictions(inp.predictions)}\n"
+                        "- sources: memory/web断片(あれば根拠として反映)。\n"
+                        f"{sources_block}"
                     ),
                 },
             ]

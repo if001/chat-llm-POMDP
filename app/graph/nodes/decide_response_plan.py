@@ -7,6 +7,14 @@ from typing import Any
 
 from app.core.deps import Deps
 from app.models.state import AgentState, Action
+from app.graph.nodes.prompt_utils import (
+    format_affective_state,
+    format_deep_decision,
+    format_epistemic_state,
+    format_joint_context,
+    format_metrics,
+    format_predictions,
+)
 from app.ports.llm import LLMPort
 
 
@@ -51,6 +59,12 @@ def _coerce_int(value: Any, fallback: int) -> int:
         return fallback
 
 
+def _format_allowed_modes(modes: list[str]) -> str:
+    if not modes:
+        return "なし"
+    return " / ".join(str(m) for m in modes)
+
+
 async def _decide_action(
     small_llm: LLMPort,
     inp: DecidePlanIn,
@@ -58,9 +72,17 @@ async def _decide_action(
     allowed_modes: list[str],
 ) -> Action:
     prompt = (
-        "Return JSON with keys: response_mode, questions_asked, confirm_questions, "
-        "did_memory_search, did_web_search. "
-        "response_mode must be one of the allowed_modes list."
+        "あなたはresponse plan(action)の決定器。"
+        "入力はjoint_context/deep_decision/predictions/metrics/epistemic_state/affective_state/allowed_modes。"
+        "design_docの共同枠組みと予測階層に従い、適切な応答モードと質問方針を決める。"
+        "出力はJSONのみ。"
+        "出力フォーマット: {"
+        '"response_mode": "allowed_modesのいずれか", '
+        '"questions_asked": int, '
+        '"confirm_questions": ["短い確認質問"], '
+        '"did_memory_search": true|false, '
+        '"did_web_search": true|false'
+        "}。questions_askedはquestion_budget以下。"
     )
     try:
         result = await small_llm.ainvoke(
@@ -69,12 +91,20 @@ async def _decide_action(
                 {
                     "role": "user",
                     "content": (
-                        f"joint_context: {inp.joint_context}\n"
-                        f"deep_decision: {inp.deep_decision}\n"
-                        f"predictions: {inp.predictions}\n"
-                        f"metrics: {inp.metrics}\n"
-                        f"affective_state: {inp.affective_state}\n"
-                        f"allowed_modes: {allowed_modes}"
+                        "入力:\n"
+                        "- joint_context: 現在の枠組み/役割/規範。response_modeや質問密度の制約。\n"
+                        f"{format_joint_context(inp.joint_context)}\n"
+                        "- deep_decision: deep_*の理由やrepair計画。応答方針に反映。\n"
+                        f"{format_deep_decision(inp.deep_decision)}\n"
+                        "- predictions: L0-L4の浅い予測。応答モードの選択に使う。\n"
+                        f"{format_predictions(inp.predictions)}\n"
+                        "- metrics: 予測誤差やリスク等。保守的/積極的の判断に使う。\n"
+                        f"{format_metrics(inp.metrics)}\n"
+                        "- epistemic_state: 不確実性/高ステークス。慎重さの調整に使う。\n"
+                        f"{format_epistemic_state(inp.epistemic_state)}\n"
+                        "- affective_state: 感情/関係指標。語調や質問量の調整に使う。\n"
+                        f"{format_affective_state(inp.affective_state)}\n"
+                        f"- allowed_modes: {_format_allowed_modes(allowed_modes)}"
                     ),
                 },
             ]
@@ -128,12 +158,12 @@ def make_decide_response_plan_node(deps: Deps):
             "chosen_role_leader": inp.joint_context["roles"]["leader"],
             "response_mode": allowed_modes[0],
             "questions_asked": 0,
-            "question_budget": inp.joint_context["norms"]["question_budget"],
-            "confirm_questions": list(repair_plan.get("questions", [])),
-            "did_memory_search": reason == "persona_premise_mismatch",
-            "did_web_search": reason == "need_evidence",
-            "used_levels": used_levels,
-            "used_depths": used_depths or ["shallow"],
+            "question_budget": norms["question_budget"],
+            "confirm_questions": [],
+            "did_memory_search": False,
+            "did_web_search": False,
+            "used_levels": ["L0", "L1", "L2", "L3", "L4"],
+            "used_depths": ["shallow"],
         }
         action = await _decide_action(
             deps.small_llm, inp, fallback_action, allowed_modes
