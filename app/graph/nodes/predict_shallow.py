@@ -7,7 +7,16 @@ import json
 from typing import Any
 
 from app.core.deps import Deps
-from app.models.state import AgentState, EpistemicUncertainty
+from app.models.state import (
+    AgentState,
+    EpistemicUncertainty,
+    JointContext,
+    Metrics,
+    Observation,
+    UserModel,
+    AssumptionItem,
+    UnresolvedItem,
+)
 from app.models.types import PredictionCommon
 from app.graph.nodes.prompt_utils import (
     format_common_ground,
@@ -27,14 +36,14 @@ class PredictShallowIn:
     user_input: str
 
     # 保持情報
-    joint_context: dict
-    common_ground: dict
-    unresolved_points: list[dict]
-    user_model: dict
+    joint_context: JointContext
+    common_ground: dict[str, list[AssumptionItem]]
+    unresolved_points: list[UnresolvedItem]
+    user_model: UserModel
 
     # 観測/指標（観測を用いた予測、metricsに基づく補正）
-    observation: dict
-    metrics_prev: dict
+    observation: Observation
+    metrics_prev: Metrics
 
 
 @dataclass(frozen=True)

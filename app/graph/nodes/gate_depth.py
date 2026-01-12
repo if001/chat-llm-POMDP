@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.models.state import AgentState, Metrics
+from app.models.state import AgentState, EpistemicState, Metrics, Predictions
 from app.models.types import DeepDecision
 from app.graph.utils.write import a_stream_writer
 
@@ -11,8 +11,8 @@ from app.graph.utils.write import a_stream_writer
 @dataclass(frozen=True)
 class GateDepthIn:
     metrics: Metrics
-    predictions: dict
-    epistemic_state: dict
+    predictions: Predictions
+    epistemic_state: EpistemicState
 
     unresolved_points_count: int
     stance: float
