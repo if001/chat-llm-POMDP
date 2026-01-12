@@ -1,2 +1,11 @@
 .venv
 chat_llm_v3.egg-info
+app/__pycache__/
+app/graph/__pycache__/
+app/graph/nodes/__pycache__/
+app/adapters/__pycache__/
+app/config/__pycache__/
+app/core/__pycache__/
+app/ports/__pycache__/
+app/models/__pycache__/
+data/

@@ -1,0 +1,1064 @@
+app/graph/nodesの中身を実装してください。
+app/graph/nodesの中身はコメントのみで実装が行われていません。
+design docに従って実装してください。
+
+python3.11 / uv / langchain / langgraph / Ollama / Firecrawl / Chroma（必要ならPostgres） Ollama / Firecrawl はすでにホストされており、langchainのclient、firecrawl python sdkを利用します。
+通常のLLM,小型のLLM,emebddingはollamaを利用します アーキテクチャを意識して、適切にモジュール、ロジックを分割、凝集しましょう。
+1つのファイルが肥大化しすぎないようにしてください。 statusとノードの引数と出力のみを実装してください。ノードの実際の処理は不要です。
+
+<design doc>
+# 1on1 対話エージェント Design Doc v1.2
+
+**— 共同行為制約下の長期価値最大化と階層予測制御 —**
+
+---
+
+## 0. 要約
+
+本システムは、1対1のテキスト対話を
+**「共同行為（joint action）という生得的制約のもとで、将来にわたる期待情報量・関係安定・共同性を最大化する過程」**
+として捉える対話エージェントである。
+
+中核となる設計思想は以下である。
+
+* 対話における **予測（Prediction）は単一ではなく階層的**である
+  （表層・行為・意図・人物像・枠組み）
+* 予測は **レベル（何を予測するか）** と **深さ（どれだけ資源を使うか）** を分離して制御される
+* **共同行為は予測階層の一段ではなく、全体を制約する常時ONの前提構造**である
+* **Repair は例外処理ではなく、予測誤差に応じて予測深さを調整する標準制御機構**である
+* 感情・ツール・探索はすべて
+  **「どの予測を、どの深さで使うか」を決めるための入力信号**として統合される
+
+---
+
+## 0. 目的と前提（Implementation 統合）
+
+### 0.1 目的
+
+* v1.2 の設計（階層予測×深さ制御×Repair×共同性）を、**LangGraphで実装できる形**に具体化する。
+* “学習”は、厳密な報酬最適化ではなく **オンラインの価値更新（value estimates / thresholds / confidences）** として行う。
+* 単語一致の単純ルールではなく、**特徴量 + 小型LLM分類（投票・信頼度）**を基本とする。
+
+### 0.2 前提
+
+* 1対1テキスト対話（音声/表情なし）
+* ユーザーは固定（単一人物モデル）
+* LLM呼び出しコストは無視できる（何度呼んでもよい）
+* JSON出力はブレる → **投票 + confidence**で堅牢化
+* 利用技術：python3.11 / uv / langchain / langgraph / Ollama / Firecrawl / Chroma（必要ならPostgres）
+
+---
+
+## 1. 第一原理
+
+> **対話は、生得的な共同行為アーキテクチャの制約下で、
+> 将来にわたる期待情報量（＋関係安定＋共同性）を最大化する過程である。**
+
+### 含意
+
+* 情報獲得は目的の一部だが、唯一の目的ではない
+* 関係安定・共同性は **長期的な情報獲得効率そのもの**に影響する
+* 対話は常に **最適化問題（RL的）**として整理できるが、
+  人間らしさは「どこまで最適化するか」の制御に現れる
+
+---
+
+## 2. 共同行為（Joint Action）の位置づけ
+
+### 2.1 共同行為は常時ONの前提構造
+
+* 対話は常に **共同作業（joint action）** として進行する
+* 各ターンは以下を暗黙に更新する行為である
+
+  * 共通基盤（common ground）
+  * 役割（誰が主導か）
+  * 目的（何をしている会話か）
+  * 規範（どこまで踏み込むか）
+
+共同行為は
+**達成されるゴールではなく、対話が成立するための構造的制約**である。
+
+### 2.2 共同行為は制約であり、ときに目的でもある
+
+* `explore / decide / execute`
+  → 共同行為は **制約条件**
+* `vent / socialize / reflect`
+  → 共同行為そのもの（共有・伴走・同期）が **主要目的**
+
+この二面性は、後述する **報酬設計（6章）** に明示的に反映される。
+
+---
+
+## 2. （Implementation 統合）共同行為の実装上の扱い
+
+### 2.3 実装原則
+
+共同行為は「ゴール」ではなく **常時ONの制約**。実装では state 内の `joint_context` と `common_ground` を毎ターン更新し、行動生成はこれらの制約下で行う。
+
+### 2.4 joint_context（状態）
+
+* frame：今の会話の枠組み（後述の固定集合）
+* roles：主導（user/assistant/joint）
+* norms：質問密度、踏み込み上限、要約確認頻度などの運用パラメータ（tool_contractの代替）
+
+**frame の固定集合（推奨）**
+
+* `explore`（情報収集・状況把握）
+* `decide`（選択肢比較・意思決定）
+* `execute`（手順化・実行支援）
+* `reflect`（内省・整理）
+* `vent`（感情吐露・伴走）
+
+---
+
+## 3. 予測（Prediction）：階層構造と制御戦略（中核）
+
+> 本章は
+> **予測・状態・repair・階層制御をすべて統合した章**である。
+
+---
+
+### 3.1 基本立場：対話の予測は階層的である
+
+* 人の対話における予測は単一の推論ではない
+* 異なる
+
+  * 抽象度
+  * 時間スケール
+  * 認知コスト
+    を持つ複数の予測が **並行して常時動作**している
+
+重要なのは：
+
+> **高レベル予測は「たまに起動」ではなく、
+> 常時 shallow で動作し、必要時に deep になる**
+
+---
+
+### 3.2 予測の二軸定義
+
+#### 軸A：予測レベル（What を予測するか）
+
+#### 軸B：予測深さ（How much 資源を使うか）
+
+* **レベル**：何についての仮説か
+* **深さ**：どこまで精密に計算するか
+
+---
+
+### 3.3 予測レベル定義（1対1テキスト対話）
+
+#### **L0：表層・スタイル予測**
+
+* 語感、文長、否定表現、丁寧さ、間の詰まり
+* 出力：
+
+  * style_fit
+  * turn_pressure
+* 常時 shallow（超低コスト）
+
+---
+
+#### **L1：発話行為・グラウンディング予測**
+
+* 発話行為：
+
+  * ask / answer / correct / vent / meta
+* grounding / repair の必要度
+* 常時 shallow
+
+---
+
+#### **L2：局所意図・不確実性予測**
+
+* 今この発話で何をしたいか
+* 不確実性の分解：
+
+  * U_semantic（意味）
+  * U_epistemic（事実・知識）
+  * U_social（踏み込み・関係）
+* 常時 shallow
+* deep は質問設計・探索判断時のみ
+
+---
+
+#### **L3：人物モデル・共有理解予測**
+
+* 相手の価値観・忌避・反応傾向
+* common ground の欠落点
+* 常時 shallow（軽量な人物仮説）
+* repair・高ステークス時のみ deep
+
+---
+
+#### **L4：共同枠組みの再設計・長期価値予測**
+
+※ **共同行為そのものではない**
+
+* frame の再交渉
+* joint goal / role の再定義
+* tool_contract の更新
+* 通常 OFF
+* 明示的トリガ時のみ ON
+
+---
+
+### 3.4 予測深さ（Predictive Depth）
+
+* `shallow`
+
+  * 即時・低コスト
+  * 近似・仮説的
+* `deep`
+
+  * 記憶検索
+  * 統合推論
+  * 長期影響評価
+
+---
+
+### 3.5 状態定義（POMDP）：予測中心の整理
+
+状態は **予測制御に必要な最小構成**として以下を持つ。
+
+```yaml
+state:
+  joint_context:
+    frame
+    roles
+    norms
+  common_ground:
+    shared_assumptions
+    unresolved_points
+  affective_state:
+    emotion_episode
+    mood
+    interpersonal_stance
+    regulation_bias
+  epistemic_state:
+    uncertainties:
+      semantic
+      epistemic
+      social
+    predictive_hierarchy:
+      L0-L4:
+        depth: shallow|deep
+    tool_contract
+```
+
+---
+
+### 3.6 Repair の位置づけ（予測制御として）
+
+* Repair は失敗処理ではない
+* **予測誤差に基づき、予測深さを引き上げる制御入力**
+
+段階的 repair：
+
+1. L1 shallow：言い換え・optionality
+2. L2 deep：意図確認
+3. L3 deep：人物モデル再評価
+4. L4：枠組み再交渉
+
+---
+
+## 3. （Implementation 統合）予測階層×深さ制御×Repair：実装仕様
+
+## 3.7 予測出力の共通フォーマット（L0-L4共通）
+
+各レベルの shallow/deep は、最終的に以下の共通フォーマットで state に格納する。
+
+```yaml
+prediction:
+  level: L0|L1|L2|L3|L4
+  depth: shallow|deep
+  outputs: {...}         # レベル固有
+  confidence: 0.0-1.0    # 投票一致率など
+  evidence:
+    from_turns: [int...]
+    sources_used:
+      memory: bool
+      web: bool
+  timestamp_turn: int
+```
+
+### 投票・confidence（JSONブレ対策）
+
+* 小型LLM分類を **同一プロンプトで3回** 実行
+* majority vote を採用
+* `confidence = (最多カテゴリ票数) / 3`
+* `confidence < 0.67` の場合：
+
+  * 追加で2回実行して5回投票に拡張 or 大きいLLMで裁定
+  * いずれもログに残す
+
+---
+
+## 3.8 POMDP state（実装用完全定義）
+
+```yaml
+state:
+  # === 会話履歴（LLM入力用）===
+  wm_messages:           # working memory messages (short window)
+    - {role, content, meta?}
+  turn_id: int
+
+  # === joint action 制約 ===
+  joint_context:
+    frame: explore|decide|execute|reflect|vent
+    roles:
+      leader: user|assistant|joint
+    norms:
+      question_budget: int              # 1ターンで許される質問数（推定で更新）
+      max_response_length: int          # 返答長の上限（推定で更新）
+      optionality_required: bool        # 選択肢提示を基本にするか
+      summarize_before_advice: bool     # 提案前に要約確認するか
+      stance_sensitive: bool            # 距離がある時は踏み込み抑制
+
+  # === common ground / unresolved ===
+  common_ground:
+    assumptions: [AssumptionItem...]
+  unresolved_points: [UnresolvedItem...]
+
+  # === affective signals（入力）===
+  affective_state:
+    episode:
+      valence: float   # 0..1
+      arousal: float   # 0..1
+      confidence: float
+    mood:
+      valence: float
+      arousal: float
+    interpersonal_stance: float         # 0..1 (0=親密/許容, 1=警戒/距離)
+    regulation_bias:
+      mode: calm|explore                # 深さ/repair方針に影響
+      confidence: float
+
+  # === epistemic（不確実性・深さ制御の核）===
+  epistemic_state:
+    uncertainties:
+      semantic: float    # U_semantic 0..1
+      epistemic: float   # U_epistemic 0..1
+      social: float      # U_social 0..1
+      confidence: float
+    high_stakes:
+      value: float       # 0..1
+      categories: [decision, deadline, money, work_risk]  # 該当カテゴリ
+      confidence: float
+    predictive_hierarchy:
+      L0: {depth: shallow|deep, last_conf: float}
+      L1: {depth: shallow|deep, last_conf: float}
+      L2: {depth: shallow|deep, last_conf: float}
+      L3: {depth: shallow|deep, last_conf: float}
+      L4: {depth: shallow|deep, last_conf: float}
+
+  # === 人物モデル（ユーザー固定）===
+  user_model:
+    traits: {trait_name: {value: float, conf: float, evidence_ids: [str...]}}
+    topic_preferences: {topic: {value: float, conf: float, evidence_ids: [...]}}
+    taboos: [{item: str, conf: float, evidence_ids: [...]}]
+    last_updated_turn: int
+
+  # === 観測イベント（学習・repair判定の入力）===
+  observation:
+    reaction_type: accept|clarify|correct|refuse|defer|topic_shift|mixed
+    ack_type: explicit_yes|implicit_yes|mixed|no|none
+    events:
+      E_correct: 0|1
+      E_refuse: 0|1
+      E_clarify: 0|1
+      E_miss: 0|1
+      E_frame_break: 0|1
+      E_overstep: 0|1
+    confidence: float
+
+  # === 指標（ログ・ゲート）===
+  metrics:
+    prediction_error: float     # PE_t 0..1
+    delta_I: float              # ΔI_t
+    delta_G: float              # ΔG_t
+    delta_J: float              # ΔJ_t
+    risk: float                 # Risk_t
+    cost_user: float            # Cost_user_t
+    cost_agent: float           # Cost_agent_t
+    sources_used:
+      memory: bool
+      web: bool
+
+  # === 外部リソース（DI）===
+  resources:
+    llm: <langchain chat model>                # Ollama
+    small_llm: <langchain chat model>          # 小型
+    embeddings: <langchain embeddings>         # Ollama embeddings
+    chroma: <chroma client/collection>
+    firecrawl: <firecrawl sdk client>
+
+  # === 生成結果 ===
+  response:
+    final_text: str
+    meta:
+      sources_label: "会話のみ|記憶|Web検索|記憶+Web検索"
+      used_levels: [L0..L4]
+      used_depths: [shallow|deep]
+```
+
+### AssumptionItem / UnresolvedItem の完全定義
+
+```yaml
+AssumptionItem:
+  id: str
+  proposition: str
+  scope: global|current_task
+  confidence: float
+  evidence_ids: [str]
+  last_updated_turn: int
+
+UnresolvedItem:
+  id: str
+  question: str
+  kind: semantic|epistemic|social
+  priority: float
+  asked: bool
+  answered: bool
+  created_turn: int
+  last_touched_turn: int
+```
+
+---
+
+## 3.9 L0-L4（shallow）の具体仕様（毎ターン常時）
+
+### L0 shallow：表層・スタイル予測
+
+**入力**：直近 user message + 直近数ターン
+**出力（outputs）**
+
+* `style_fit`（0..1）: 直近の文体と整合しているか（assistant側が合わせられる度合い）
+* `turn_pressure`（0..1）: 返答圧（短く返すべき/丁寧に返すべきの兆候）
+* `features`: 文字数、句読点密度、否定率、感嘆符率、質問率など（頻度特徴）
+
+**計測**：特徴量 + small LLMの短い分類（投票）
+
+---
+
+### L1 shallow：発話行為・グラウンディング
+
+**出力**
+
+* `speech_act`: ask|answer|correct|vent|meta|other
+* `grounding_need`（0..1）
+* `repair_need`（0..1）
+
+**計測**
+
+* small LLM分類（投票） + 構造特徴
+
+  * 直前assistantが質問→ユーザーが未回答なら grounding_need↑
+  * 指示語/省略が多いなら semantic uncertainty↑ にも反映
+
+---
+
+### L2 shallow：局所意図・不確実性
+
+**出力**
+
+* `local_intent`: inform|request|decide|complain|reflect|unknown
+* `U_semantic/U_epistemic/U_social`（0..1）
+* `need_question_design`（bool）
+
+**計測**
+
+* small LLMで uncertainty vector 推定（投票）
+* `need_question_design` は U_semantic or U_social が高い、または unresolved が多い時 true
+
+---
+
+### L3 shallow：人物モデル・共有理解
+
+**出力**
+
+* `cg_gap_candidates`: 共有不足候補（最大3）
+* `stance_update_signal`: stanceを上げ下げする兆候（overstep/refuse/agreeなど）
+
+**計測**
+
+* unresolved_points と common_ground を参照し、small LLMで “今何が欠けてるか” を抽出（投票）
+* stance_update_signal は観測イベントから
+
+---
+
+### L4 shallow：枠組み再設計（通常OFF）
+
+**出力**
+
+* `l4_trigger_score`（0..1）
+* `frame_hypothesis`: 現在/望ましいframe候補
+
+**計測**
+
+* 後述Fのトリガロジックで算出（小型LLMの meta_frame_request 分類 + 反復ズレ）
+
+---
+
+## 3.10 deep の種類（推奨優先順位）
+
+deep は単一ではなく、目的別に分ける。
+
+1. **deep_repair（L1/L2）**：確認質問・選択肢提示で誤差解消
+2. **deep_memory（L3）**：Chroma検索で過去の前提・好み・継続タスク取得
+3. **deep_web（L2）**：Firecrawlで外部根拠取得
+4. **deep_frame（L4）**：枠組み交渉（メタ）
+
+---
+
+## 3.11 Repair を例外にしない：Repair Ladder（完全仕様）
+
+Repair は `prediction_error` と `U_*` により段階的に起動。
+
+**Ladder**
+
+1. **L1 shallow repair**：言い換え・選択肢提示・optionality
+2. **L2 deep repair**：意図確認（質問設計）
+3. **L3 deep repair**：人物モデル再評価 + 記憶検索
+4. **L4 repair**：枠組み再交渉（後述F）
+
+---
+
+## 4. 感情の多階層化 × 予測制御
+
+感情は **独立した出力対象ではなく、予測制御の入力**である。
+
+### 4.1 感情の多層構造
+
+1. Emotion episode（瞬間情動）
+2. Mood（気分）
+3. Interpersonal stance（距離・警戒・丁寧さ）
+4. Regulation bias（落ち着かせたい／探索したい）
+
+### 4.2 感情と予測階層の接続
+
+* L0/L1：表層兆候（短文化・否定・感嘆）
+* L2：U_social の増減
+* L3：stance の更新（踏み込み抑制）
+* L4：枠組み変更（vent への切替など）
+
+感情は
+**「どこまで予測を深くするべきか」を決める主要信号**である。
+
+---
+
+## 4. （Implementation 統合）感情多層の更新則（完全仕様）
+
+## 4.3 episode の推定（推奨：valence/arousal）
+
+* small LLM投票で 0..1 推定
+* confidence が低い場合は 0.5 に寄せる（過信しない）
+
+## 4.4 mood の更新（EMA）
+
+```text
+mood = 0.8*mood_prev + 0.2*episode
+```
+
+## 4.5 interpersonal_stance の更新
+
+```text
+stance =
+clamp(
+ stance_prev
+ +0.25*E_overstep
+ +0.25*E_refuse
+ +0.15*U_social
+ -0.10*(ack_type in {explicit_yes, implicit_yes})
+)
+```
+
+## 4.6 regulation_bias（calm/explore）
+
+```text
+if (episode.arousal high AND stance high) OR PE_t high:
+  bias = calm
+else if engagement high AND stance low:
+  bias = explore
+else:
+  bias = keep_prev
+```
+
+* “engagement high” は small LLM投票（elaboration/continuation）
+
+---
+
+## 5. ツール（外部検索）統合 × 予測階層
+
+### 5.1 基本立場
+
+* 人は脳内検索はしないが、**会話の中で道具として検索を使う**
+* よって外部検索は **拡張認知（extended cognition）** として扱う
+
+### 5.2 予測階層との役割分担
+
+* L2：ツール使用の期待ΔIを推定
+* L3：関係・信頼への影響（Risk）を推定
+* L4：tool_contract の再交渉
+
+### 5.3 tool_contract（状態）
+
+```yaml
+tool_contract:
+  allowed_tools
+  allowed_scopes
+  sensitive_topics
+  transparency_level
+```
+
+ツール使用は
+**予測深度を下げる代替手段**としても扱われる。
+
+---
+
+## 6. 強化学習的整理と報酬設計
+
+### 6.1 報酬関数
+
+```text
+R_t =
+w_I * ΔI        # 情報獲得
++ w_G * ΔG      # 共有理解
++ w_J * ΔJ      # 共同行為そのもの
+- w_C * Cost_user
+- w_R * Risk
+- λ * Cost_agent
+```
+
+### 6.2 ΔJ（Jointness）
+
+* 一緒に考えている感
+* 同期・安心・伴走感
+* 会話継続意欲
+
+### 6.3 共同行為が目的になる条件
+
+* frame ∈ {vent, socialize, reflect}
+* ΔJ が主報酬、ΔI は副次
+
+---
+
+## 6. （Implementation 統合）指標定義：PE/ΔI/ΔG/ΔJ/Risk/Cost
+
+## 6.4 観測イベント `observation`（推奨：分類+構造）
+
+毎ターン、ユーザー発話を以下に分類（小型LLM投票＋構造特徴）。
+
+* `reaction_type`: accept|clarify|correct|refuse|defer|topic_shift|mixed
+* `ack_type`: explicit_yes|implicit_yes|mixed|no|none
+
+**events の算出**
+
+* `E_correct=1` if reaction_type==correct
+* `E_refuse=1` if reaction_type==refuse
+* `E_clarify=1` if reaction_type==clarify
+* `E_miss=1` if (assistantが質問したのに未回答) or defer
+* `E_frame_break=1` if topic_shift かつ「枠が違う」推定（small LLM）
+* `E_overstep=1` if refuseの理由が social（踏み込み）側に分類される
+
+---
+
+## 6.5 Prediction Error `PE_t`
+
+**推奨：イベント加重**
+
+```text
+PE_t =
+0.4*E_correct
++0.6*E_refuse
++0.3*E_clarify
++0.2*E_miss
++0.4*E_frame_break
++0.5*E_overstep
+```
+
+* 0..1にクリップ
+* ログに寄与成分も残す（どれが効いたか）
+
+---
+
+## 6.6 ΔI（情報獲得）
+
+**推奨：不確実性減少 + 新情報イベント**
+
+```text
+ΔI_t = (U_epistemic_prev - U_epistemic_now) + novelty_bonus
+novelty_bonus ∈ {0.0, 0.1, 0.2, 0.3}  # none/small/medium/large
+```
+
+* novelty は small LLM投票で判定：
+
+  * “ユーザーが新しい制約/事実/目的を提示したか” と “粒度”
+
+---
+
+## 6.7 ΔG（共有理解）
+
+**推奨：未解決点の解消 + alignment**
+
+```text
+ΔG_t = resolved_count - added_unresolved_count + alignment_bonus
+alignment_bonus =
+ +0.2 if ack_type in {explicit_yes, implicit_yes}
+ -0.2 if ack_type == no
+  0.0 otherwise
+```
+
+---
+
+## 6.8 ΔJ（jointness）
+
+**推奨：協調行動ベース**
+
+```text
+ΔJ_t =
+ +0.2 if reaction_type==accept and user provides elaboration
+ +0.2 if user selects from offered options / answers asked question
+ +0.2 if user expresses continuation intent
+ -0.3 if reaction_type==refuse
+ -0.2 if reaction_type==topic_shift with frame_break
+```
+
+* “elaboration / continuation / option selection” は small LLM投票で分類
+
+---
+
+## 6.9 Risk
+
+**推奨：Risk_social + Risk_misinformation**
+
+```text
+Risk_social = clamp( 0.5*U_social + 0.3*E_overstep + 0.3*E_refuse )
+Risk_misinformation = clamp( 0.6*U_epistemic * (1 - has_external_support) * assertiveness )
+Risk_t = clamp(Risk_social + Risk_misinformation)
+```
+
+* `has_external_support`：今回web/memoryを使ったか
+* `assertiveness`：assistant案が断定的か（small LLMで0..1推定）
+
+---
+
+## 6.10 Cost_user / Cost_agent
+
+**Cost_user（推奨：質問負荷・長さ・未解決残）**
+
+```text
+Cost_user =
+0.2*(questions_asked_this_turn)
++0.2*(unresolved_points_open)
++0.2*(response_length_norm)
++0.2*(complexity_score)
+```
+
+* complexity_score：選択肢数・条件分岐数を small LLM で推定
+
+**Cost_agent（上限制御用）**
+
+* deep実行回数、web検索回数、投票回数などをカウント
+
+---
+
+## 7. （Implementation 統合）深さ制御：起動条件・閾値・優先順位（完全仕様）
+
+## 7.1 deep_score による連続値ゲート（推奨）
+
+```text
+deep_score =
+1.0*PE_t
++0.9*U_semantic
++0.9*U_epistemic
++1.1*U_social
++0.8*high_stakes
+-0.6*Cost_user
+```
+
+**ゲート**
+
+* `deep_score >= θ_deep` → deep 起動
+* `θ_deep` は学習ループで更新（後述H）
+
+初期値（MVP）
+
+* `θ_deep = 1.2`
+
+## 7.2 deep の種類選択（推奨優先順位）
+
+deep 起動時：
+
+1. `PE_t` 高 or `U_semantic/U_social` 高 → **deep_repair**
+2. `user_model.conf` が低い or cg_gap 大 → **deep_memory**
+3. `U_epistemic` 高かつ根拠必要 → **deep_web**
+4. 反復ズレ（後述F）→ **deep_frame**
+
+---
+
+## 8. （Implementation 統合）人物モデル（L3）の表現・更新（完全仕様）
+
+## 8.1 表現（推奨：連続値+conf+evidence）
+
+* `traits`：スタイル・自律性・詳細好み・提案の好み等（0..1）
+* `topic_preferences`：トピック別の踏み込み許容/リスク許容など
+* `taboos`：避けたい行為（推定）
+
+## 8.2 更新イベント（推奨：強い証拠時のみ）
+
+更新トリガ（いずれか）
+
+* 明示的好み表明（「短く」「結論から」「質問多めは嫌」など）※単語一致でなく small LLMで “preference statement” を分類
+* 拒否/不快（E_refuse=1）
+* 3回以上繰り返される行動（例：毎回要約確認を求める）→ログ集計で検出
+
+## 8.3 更新則
+
+* `value_new = 0.8*value_old + 0.2*value_observed`
+* `conf_new = clamp(conf_old + conf_gain)`
+
+  * conf_gain は証拠の強さ（明示>反復>弱い示唆）
+
+---
+
+## 9. （Implementation 統合）common_ground / unresolved_points の更新（完全仕様）
+
+## 9.1 unresolved の生成・更新
+
+毎ターン L2 の一部として：
+
+* small LLM投票で “埋めるべき穴” を最大3件抽出
+* kind（semantic/epistemic/social）と priority（0..1）も推定
+* 既存 unresolved と類似（embedding近い）なら統合
+
+## 9.2 解消判定 → common_ground に昇格
+
+* ユーザーが質問に答えたと判定（small LLM投票 + 構造）
+* `answered=true` にし、要点を `proposition` として assumption に昇格
+* confidence は `0.5 + 0.5*observation.confidence` などで初期化
+
+---
+
+## 10. （Implementation 統合）L4 枠組み再設計：トリガと交渉プロトコル（完全仕様）
+
+## 10.1 トリガ（推奨：明示 + 反復ズレ）
+
+### 明示トリガ
+
+* small LLMで `meta_frame_request` を分類（投票）
+
+  * 例：方針変更、目的整理、相談の仕方変更
+
+### 反復ズレトリガ
+
+* `PE_t >= 0.6` が連続3ターン
+* `E_frame_break=1` が2回以上/直近5ターン
+* unresolved が増える一方で解消が少ない（例：増分>解消が直近5ターンで継続）
+* stance が悪化傾向（直近5ターンで +0.2 以上）
+
+## 10.2 交渉プロトコル（テンプレ）
+
+L4ノードが起動したら、必ず以下の順で短く行う。
+
+**Step0 予告**
+
+* 「少し進め方を合わせたい。いま目的/進め方がズレているかも」
+
+**Step1 現状仮説**
+
+* 「今は（explore/decide/execute/reflect/vent）のどれに近い？」
+
+**Step2 選択肢提示（2〜4個）**
+
+* 例：
+
+  * A: 質問を2つだけして状況を確定（explore）
+  * B: 選択肢を出して比較（decide）
+  * C: 手順に落とす（execute）
+  * D: まず気持ち/考えを整理（reflect/vent）
+
+**Step3 最小同意**
+
+* 「今日はB寄りで、前提を2点確認→提案、でいい？」
+
+**Step4 state反映**
+
+* `joint_context.frame` 更新
+* `norms.question_budget` 等を更新
+
+---
+
+## 11. 外部情報の利用表示（tool_contract廃止版）
+
+## 11.1 sources_used
+
+* deep_memory 実行 → `sources_used.memory=true`
+* deep_web 実行 → `sources_used.web=true`
+
+## 11.2 応答末尾ラベル（必ず付与）
+
+* 会話のみ：`（参照: 会話のみ）`
+* 記憶：`（参照: 記憶）`
+* Web：`（参照: Web検索）`
+* 両方：`（参照: 記憶 + Web検索）`
+
+---
+
+## 12. （学習）行動・観測・更新ループ：価値更新と方策調整（オンライン学習）
+
+## 12.1 目的
+
+厳密な重み最適化はしないが、以下をオンラインで更新して **予測・方策を改善**する。
+
+更新対象（推奨）
+
+1. `θ_deep`（deepゲート閾値）
+2. norms（質問予算、要約確認頻度）
+3. user_model の trait/conf
+4. frame 推定の prior（どのframeが適合しやすいか）
+5. “どの repair が効いたか” の成功率
+
+## 12.2 行動（Action）定義（実装用）
+
+各ターンの行動は以下の組で表す（ログにも保存）。
+
+```yaml
+action:
+  chosen_frame: frame
+  chosen_role_leader: user|assistant|joint
+  response_mode: explain|ask|offer_options|summarize|repair|meta_frame
+  questions_asked: int
+  did_memory_search: bool
+  did_web_search: bool
+  used_levels: [L0..L4]
+  used_depths: [shallow|deep]
+```
+
+## 12.3 観測（Observation）
+
+前述 `observation` + 指標 `metrics` が観測。
+
+## 12.4 価値更新（Value Update：推奨の最小構成）
+
+### (1) ターン価値 `V_t`（学習用スカラー）
+
+厳密な重み学習はしないので、固定係数で良い。
+
+```text
+V_t = +1.0*ΔI_t + 1.0*ΔG_t + 1.0*ΔJ_t
+      -1.2*Risk_t -0.8*Cost_user_t
+```
+
+### (2) ゲート閾値 `θ_deep` の更新（成功/失敗で調整）
+
+* deep を起動したターンで `V_t` が悪化し続けるなら **θ_deep を上げる**（深すぎ）
+* shallow のままで `PE_t` が連続悪化なら **θ_deep を下げる**（浅すぎ）
+
+**実装ルール（例）**
+
+* `rolling_V = EMA(V_t)`
+* `rolling_PE = EMA(PE_t)`
+* if deep_used and rolling_V decreases for M turns → `θ_deep += 0.05`
+* if not deep_used and rolling_PE increases for M turns → `θ_deep -= 0.05`
+* clamp θ_deep to [0.6, 2.0]
+
+### (3) repair 成功率の更新（方策改善）
+
+repair を行った直後 1-2ターンで
+
+* `PE` が下がり、`ack_type` が yes に寄ったら成功
+* 成功率をタイプ別（L1/L2/L3/L4）に更新し、**次回優先順位**に反映
+
+### (4) norms の更新
+
+* `Cost_user` 高が続く → `question_budget` を下げる、`max_response_length` を下げる
+* `ΔG` が低い/誤解が多い → `summarize_before_advice` を true に寄せる
+
+---
+
+## 13. LangGraph 実装へのマッピング（ノード設計：完全）
+
+## 13.1 ノード一覧（推奨）
+
+1. `ingest_turn`：ユーザー入力を wm_messages に追加
+2. `predict_shallow`：L0-L3 shallow（必要ならL4 shallow trigger scoreも）
+3. `observe_reaction`：前ターンの観測分類（reaction/ack/events）
+4. `compute_metrics`：PE/ΔI/ΔG/ΔJ/Risk/Cost を計算
+5. `gate_depth`：deep_score 計算→ deep実行可否/種類を決定
+6. `deep_repair`（条件）
+7. `deep_memory`（条件）
+8. `deep_web`（条件）
+9. `deep_frame`（条件）
+10. `decide_response_plan`：response_mode / 質問数 / 要約有無を決める
+11. `respond`：最終文章生成（sources label付与）
+12. `learn_update`：θ_deep/norms/user_model/repair_stats 更新
+13. `persist_trace`：JSON or Postgres に保存（任意）
+
+## 13.2 条件分岐（edges）
+
+* `gate_depth` → `deep_*` は優先順位に従い単発 or 連鎖（最大2段まで推奨）
+* `deep_frame` は最優先ではなく、反復ズレ条件時のみ
+
+---
+
+## 14. 永続化（最低限）
+
+推奨：最初は JSON で十分（後でPostgresへ）
+
+* `trace/turn_{id}.json`：stateのサマリ、action、observation、metrics、θ_deep等
+* `user_model.json`：人物モデル
+* `memory_store`：Chroma（会話要約/重要イベント）
+
+
+1. app/graph/nodes/observe_reaction.pyを修正しましょう。
+events(E_correct/E_refuse/E_clarify/E_miss/E_frame_break/E_overstep)の算出が行われていません。
+必要があれば、LLMもしくはsmall_llmを用いて算出しましょう。
+
+2. app/graph/nodes/learn_update.pyを修正しましょう。
+design docの設計とinner関数のコメントを参考に修正してください。
+必要があれば、LLMもしくはsmall_llmを用いて算出するようにしてください。
+
+
+joint_contextの各要素について、簡潔に1行で説明文を作成してください
+frame：今の会話の枠組み（後述の固定集合）
+roles：主導（user/assistant/joint）
+norms：質問密度、踏み込み上限、要約確認頻度などの運用パラメータ（tool_contractの代替）
+
+frame
+- explore（情報収集・状況把握）
+- decide（選択肢比較・意思決定）
+- execute（手順化・実行支援）
+- reflect（内省・整理）
+- vent（感情吐露・伴走）
+
+
+
+
+
+
+stateのframeとresponse_modeについて整理します。
+frame は「ゲームのルール」、response_mode は「そのルール内での一手」
+- frame は L4 deep_frame で更新されることがある
+- response_mode は 毎ターン決まる
+
+frame は design doc の第一原理に直結しています。
+「将来にわたる期待情報量・関係安定・共同性を最大化する」
+
+response_modeは
+- 今回の L0–L3 の予測結果
+- 予測誤差（PE）
+- norms（質問予算など）
+- stance / regulation_bias
+を入力にして決まる 戦術的選択です。
+
+| frame   | 許容される response_mode（例）                       |
+| ------- | -------------------------------------------- |
+| explore | ask / summarize / clarify / offer_hypotheses |
+| decide  | summarize / offer_options / compare / ask    |
+| execute | explain_steps / confirm / check_progress     |
+| reflect | summarize / mirror / ask_open                |
+| vent    | mirror / acknowledge / minimal_ask           |
+
+
+app/graph/nodes/内のファイルを確認してください。
