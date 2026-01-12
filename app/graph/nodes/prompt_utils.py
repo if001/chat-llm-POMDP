@@ -1,6 +1,12 @@
 from __future__ import annotations
 
 from typing import Any
+from app.models.state import (
+    AffectiveState,
+    AssumptionItem,
+    JointContext,
+    UnresolvedItem,
+)
 
 
 def _as_text(value: Any) -> str:
@@ -26,14 +32,10 @@ def format_wm_messages(wm_messages: list[dict[str, Any]], limit: int = 6) -> str
     return "\n".join(lines)
 
 
-def format_joint_context(joint_context: dict[str, Any]) -> str:
-    roles = joint_context.get("roles", {})
+def format_joint_context(joint_context: JointContext) -> str:
     norms = joint_context.get("norms", {})
-    leader = _as_text(roles.get("leader", ""))
     return "\n".join(
         [
-            f"frame: {_as_text(joint_context.get('frame', ''))}",
-            f"leader: {leader}",
             "norms:",
             f"- question_budget: {_as_text(norms.get('question_budget', ''))}",
             f"- max_response_length: {_as_text(norms.get('max_response_length', ''))}",
@@ -44,7 +46,9 @@ def format_joint_context(joint_context: dict[str, Any]) -> str:
     )
 
 
-def format_common_ground(common_ground: dict[str, Any], limit: int = 5) -> str:
+def format_common_ground(
+    common_ground: dict[str, list[AssumptionItem]], limit: int = 5
+) -> str:
     assumptions = common_ground.get("assumptions", [])
     if not isinstance(assumptions, list):
         assumptions = []
@@ -69,7 +73,9 @@ def format_common_ground(common_ground: dict[str, Any], limit: int = 5) -> str:
     return "\n".join(lines)
 
 
-def format_unresolved_points(unresolved_points: list[dict[str, Any]], limit: int = 5) -> str:
+def format_unresolved_points(
+    unresolved_points: list[UnresolvedItem], limit: int = 5
+) -> str:
     if not unresolved_points:
         return "なし"
     lines = [f"unresolved_count: {len(unresolved_points)}"]
@@ -133,14 +139,20 @@ def format_predictions(predictions: dict[str, Any]) -> str:
     def _get_outputs(level: str) -> tuple[dict[str, Any], dict[str, Any]]:
         pred = predictions.get(level, {})
         outputs = pred.get("outputs", {}) if isinstance(pred, dict) else {}
-        return pred if isinstance(pred, dict) else {}, outputs if isinstance(outputs, dict) else {}
+        return pred if isinstance(pred, dict) else {}, outputs if isinstance(
+            outputs, dict
+        ) else {}
 
     l0, l0_out = _get_outputs("L0")
     l1, l1_out = _get_outputs("L1")
     l2, l2_out = _get_outputs("L2")
     l3, l3_out = _get_outputs("L3")
     l4, l4_out = _get_outputs("L4")
-    features = l0_out.get("features", {}) if isinstance(l0_out.get("features", {}), dict) else {}
+    features = (
+        l0_out.get("features", {})
+        if isinstance(l0_out.get("features", {}), dict)
+        else {}
+    )
     cg_gaps = l3_out.get("cg_gap_candidates", [])
     return "\n".join(
         [
@@ -192,7 +204,7 @@ def format_deep_decision(deep_decision: dict[str, Any]) -> str:
     )
 
 
-def format_affective_state(affective_state: dict[str, Any]) -> str:
+def format_affective_state(affective_state: AffectiveState) -> str:
     episode = affective_state.get("episode", {})
     mood = affective_state.get("mood", {})
     regulation = affective_state.get("regulation_bias", {})
