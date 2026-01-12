@@ -9,6 +9,7 @@ from app.core.deps import Deps
 from app.models.state import AgentState, Observation
 from app.graph.nodes.prompt_utils import format_action
 from app.ports.llm import LLMPort
+from app.graph.utils.write import a_stream_writer
 
 
 @dataclass(frozen=True)
@@ -163,6 +164,7 @@ def make_observe_reaction_node(deps: Deps):
         )
         return ObserveReactionOut(status="observe_reaction:ok", observation=obs)
 
+    @a_stream_writer("observe")
     async def node(state: AgentState) -> dict:
         out = await inner(
             ObserveReactionIn(

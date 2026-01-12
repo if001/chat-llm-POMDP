@@ -17,6 +17,7 @@ from app.graph.nodes.prompt_utils import (
     format_unresolved_points,
 )
 from app.ports.llm import LLMPort
+from app.graph.utils.write import a_stream_writer
 
 
 @dataclass(frozen=True)
@@ -377,6 +378,7 @@ def make_predict_shallow_node(deps: Deps):
             uncertainties_now=uncertainties_now,
         )
 
+    @a_stream_writer("predict")
     async def node(state: AgentState) -> dict:
         out = await inner(
             PredictShallowIn(

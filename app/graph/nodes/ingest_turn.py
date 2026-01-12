@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.models.state import AgentState
+from app.graph.utils.write import stream_writer
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,7 @@ def make_ingest_turn_node():
             wm_messages=new_messages,
         )
 
+    @stream_writer("ingest_turn")
     def node(state: AgentState) -> dict:
         out = inner(
             IngestTurnIn(

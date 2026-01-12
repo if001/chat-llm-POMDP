@@ -39,7 +39,7 @@ async def main():
         user_input = input("you> ").strip()
         if user_input.lower() in ("exit", "quit"):
             break
-        state["user_input"] = "hello"
+        state["user_input"] = user_input
         state = await graph.ainvoke(state)
         print(f"assistant> {state['response']['final_text']}\n")
 
