@@ -128,7 +128,7 @@ def make_observe_reaction_node(deps: Deps):
                 "E_correct": 0,
                 "E_refuse": 0,
                 "E_clarify": 0,
-                "E_miss": 0,
+                "E_miss": miss,
                 "E_frame_break": 0,
                 "E_overstep": 0,
             },
