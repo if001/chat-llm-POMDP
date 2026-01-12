@@ -51,15 +51,17 @@ async def _plan_repair(
     wm_messages: list[dict],
 ) -> dict[str, Any]:
     prompt = (
-        "あなたはdeep_repairの計画器。"
-        "入力はユーザー発話と直近の会話履歴。"
-        "意味ズレや確認不足を埋めるための修復方針を決める。"
-        "出力はJSONのみ。"
-        "出力フォーマット: {"
+        "あなたはdeep_repairの計画器。\n"
+        "入力はユーザー発話と直近の会話履歴。\n"
+        "意味ズレや確認不足を埋めるための修復方針を決める。\n"
+        "質問は短く1〜3件。\n"
+        "出力はJSONのみ\n"
+        "出力フォーマット:\n"
+        "{"
         '"strategy": "短いラベル", '
         '"questions": ["短い確認質問"], '
         '"optionality": true|false'
-        "}。質問は短く1〜3件。"
+        "}"
     )
     try:
         result = await small_llm.ainvoke(
@@ -70,7 +72,7 @@ async def _plan_repair(
                     "content": (
                         "入力:\n"
                         f"- user_input: {user_input}\n"
-                        "- wm_messages: 直近の会話履歴(修復対象の直前文脈)。\n"
+                        "- 直近の会話履歴(修復対象の直前文脈):\n"
                         f"{format_wm_messages(wm_messages)}"
                     ),
                 },
@@ -96,8 +98,12 @@ def make_deep_repair_node(deps: Deps):
         repair_plan = dict(dd.get("repair_plan", {}))
         payload = await _plan_repair(deps.small_llm, inp.user_input, inp.wm_messages)
         if payload:
-            repair_plan["strategy"] = payload.get("strategy", repair_plan.get("strategy", ""))
-            repair_plan["questions"] = payload.get("questions", repair_plan.get("questions", []))
+            repair_plan["strategy"] = payload.get(
+                "strategy", repair_plan.get("strategy", "")
+            )
+            repair_plan["questions"] = payload.get(
+                "questions", repair_plan.get("questions", [])
+            )
             repair_plan["optionality"] = bool(
                 payload.get("optionality", repair_plan.get("optionality", False))
             )

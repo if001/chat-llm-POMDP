@@ -87,6 +87,79 @@ def _update_attribute(
     }
 
 
+def _calc_value(metrics: dict) -> float:
+    return (
+        float(metrics.get("delta_I", 0.0))
+        + float(metrics.get("delta_G", 0.0))
+        + float(metrics.get("delta_J", 0.0))
+        - 1.2 * float(metrics.get("risk", 0.0))
+        - 0.8 * float(metrics.get("cost_user", 0.0))
+    )
+
+
+def _ema(prev: float | None, value: float, alpha: float) -> float:
+    if prev is None:
+        return value
+    return (1.0 - alpha) * prev + alpha * value
+
+
+def _infer_repair_type(action: dict, deep_decision: dict) -> str | None:
+    response_mode = action.get("response_mode", "")
+    reason = deep_decision.get("reason", "")
+    if response_mode == "offer_options":
+        return "offer_options"
+    if response_mode in {"summarize"}:
+        return "summarize_confirm"
+    if response_mode in {"clarify", "ask", "ask_open", "confirm"}:
+        return "intent_check"
+    if response_mode in {"repair"}:
+        return "rephrase"
+    if response_mode == "meta_frame" or reason == "frame_collapse":
+        return "meta_frame"
+    return None
+
+
+def _update_repair_stats(
+    repair_stats: dict[str, dict[str, float]],
+    repair_type: str,
+    success: bool,
+) -> dict[str, dict[str, float]]:
+    updated = dict(repair_stats)
+    stats = dict(updated.get(repair_type, {"alpha": 2.0, "beta": 2.0}))
+    if success:
+        stats["alpha"] = float(stats.get("alpha", 2.0)) + 1.0
+    else:
+        stats["beta"] = float(stats.get("beta", 2.0)) + 1.0
+    updated[repair_type] = stats
+    return updated
+
+
+def _evaluate_repair_success(
+    baseline: dict,
+    metrics: dict,
+    observation: dict,
+) -> bool | None:
+    base_pe = float(baseline.get("baseline_PE", 0.0))
+    base_dg = float(baseline.get("baseline_delta_G", 0.0))
+    pe = float(metrics.get("prediction_error", 0.0))
+    delta_g = float(metrics.get("delta_G", 0.0))
+    ack = observation.get("ack_type", "")
+    reaction = observation.get("reaction_type", "")
+    events = observation.get("events", {})
+
+    if pe <= base_pe - 0.2:
+        return True
+    if ack in {"explicit_yes", "implicit_yes"} and delta_g > base_dg:
+        return True
+    if pe >= base_pe + 0.1:
+        return False
+    if reaction in {"refuse", "topic_shift"}:
+        return False
+    if events.get("E_frame_break", 0) == 1 or events.get("E_refuse", 0) == 1:
+        return False
+    return None
+
+
 async def _extract_user_model_updates(
     small_llm: LLMPort,
     user_input: str,
@@ -193,6 +266,81 @@ def make_learn_update_node(deps: Deps):
         deep_chain = inp.deep_decision.get("deep_chain", {})
         executed = list(deep_chain.get("executed", []))
         policy["deep_history"] = list(policy.get("deep_history", [])) + executed
+
+        alpha = 0.2
+        prev_rolling = dict(policy.get("rolling", {}))
+        rolling = dict(prev_rolling)
+        rolling["PE_total"] = _ema(
+            prev_rolling.get("PE_total"),
+            float(inp.metrics.get("prediction_error", 0.0)),
+            alpha,
+        )
+        rolling["V"] = _ema(prev_rolling.get("V"), _calc_value(inp.metrics), alpha)
+        rolling["cost_user"] = _ema(
+            prev_rolling.get("cost_user"),
+            float(inp.metrics.get("cost_user", 0.0)),
+            alpha,
+        )
+        rolling["delta_J"] = _ema(
+            prev_rolling.get("delta_J"),
+            float(inp.metrics.get("delta_J", 0.0)),
+            alpha,
+        )
+        rolling["delta_G"] = _ema(
+            prev_rolling.get("delta_G"),
+            float(inp.metrics.get("delta_G", 0.0)),
+            alpha,
+        )
+        policy["rolling"] = rolling
+
+        theta = float(policy.get("theta_deep", 1.2))
+        prev_pe = prev_rolling.get("PE_total")
+        prev_v = prev_rolling.get("V")
+        deep_used = bool(executed)
+        if deep_used and prev_v is not None and rolling.get("V") is not None:
+            if rolling["V"] < prev_v - 0.05:
+                theta += 0.05
+        if not deep_used and prev_pe is not None and rolling.get("PE_total") is not None:
+            if rolling["PE_total"] > prev_pe + 0.05:
+                theta -= 0.05
+        policy["theta_deep"] = max(0.6, min(2.0, theta))
+
+        repair_stats = dict(policy.get("repair_stats", {}))
+        pending_evals = list(policy.get("pending_evals", []))
+        updated_pending: list[dict[str, Any]] = []
+        for pending in pending_evals:
+            if pending.get("kind") != "repair":
+                updated_pending.append(pending)
+                continue
+            repair_type = pending.get("repair_type")
+            if not repair_type:
+                continue
+            ttl = int(pending.get("ttl", 1))
+            outcome = _evaluate_repair_success(pending, inp.metrics, inp.observation)
+            if outcome is True:
+                repair_stats = _update_repair_stats(repair_stats, repair_type, True)
+                continue
+            if outcome is False:
+                repair_stats = _update_repair_stats(repair_stats, repair_type, False)
+                continue
+            if ttl > 1:
+                pending["ttl"] = ttl - 1
+                updated_pending.append(pending)
+        policy["repair_stats"] = repair_stats
+        policy["pending_evals"] = updated_pending
+
+        repair_type = _infer_repair_type(inp.action, inp.deep_decision)
+        if repair_type:
+            policy["pending_evals"] = list(policy.get("pending_evals", [])) + [
+                {
+                    "kind": "repair",
+                    "turn_id": inp.turn_id,
+                    "repair_type": repair_type,
+                    "baseline_PE": float(inp.metrics.get("prediction_error", 0.0)),
+                    "baseline_delta_G": float(inp.metrics.get("delta_G", 0.0)),
+                    "ttl": 2,
+                }
+            ]
 
         updates = await _extract_user_model_updates(
             deps.small_llm, inp.user_input, inp.wm_messages

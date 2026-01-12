@@ -214,6 +214,9 @@ class UserModel(TypedDict):
 class PolicyState(TypedDict):
     theta_deep: float
     deep_history: list[str]  # 直近のdeep実行ログ（種類や回数を保持）
+    repair_stats: dict[str, dict[str, float]]
+    rolling: dict[str, float]
+    pending_evals: list[dict[str, Any]]
     # 将来: repair_success_stats, norms_update_stats, frame_prior などをここへ追加
 
 
@@ -364,6 +367,15 @@ def initial_state() -> AgentState:
         "policy": {
             "theta_deep": 1.2,
             "deep_history": [],
+            "repair_stats": {
+                "rephrase": {"alpha": 2.0, "beta": 2.0},
+                "summarize_confirm": {"alpha": 2.0, "beta": 2.0},
+                "offer_options": {"alpha": 2.0, "beta": 2.0},
+                "intent_check": {"alpha": 2.0, "beta": 2.0},
+                "meta_frame": {"alpha": 2.0, "beta": 2.0},
+            },
+            "rolling": {},
+            "pending_evals": [],
         },
         "last_turn": {
             "prev_assistant_text": "",
