@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.models.state import AgentState, EpistemicState, Metrics, Predictions
-from app.models.types import DeepDecision
+from app.models.types import DeepDecision, DeepKind
 from app.graph.utils.write import stream_writer
 
 
@@ -50,7 +50,7 @@ def make_gate_depth_node():
         )
 
         reason = ""
-        plan: list[str] = []
+        plan: list[DeepKind] = []
         if deep_score >= inp.theta_deep:
             if pe >= 0.6 or uncertainties.get("semantic", 0.0) >= 0.6:
                 reason = "meaning_mismatch"

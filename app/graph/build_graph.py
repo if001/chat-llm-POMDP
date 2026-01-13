@@ -27,8 +27,11 @@ def _route_after_gate(
 ) -> Literal[
     "deep_repair", "deep_memory", "deep_web", "deep_frame", "decide_response_plan"
 ]:
+    print("gate plan: ", state["deep_decision"]["deep_chain"]["plan"])
     plan = state["deep_decision"]["deep_chain"]["plan"]
     if not plan:
+        return "decide_response_plan"
+    if len(plan) == 0:
         return "decide_response_plan"
     nxt = plan[0]
     if nxt == "deep_repair":
