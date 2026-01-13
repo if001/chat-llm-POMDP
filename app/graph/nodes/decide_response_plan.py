@@ -61,9 +61,10 @@ async def _decide_action(
     allowed_modes: list[str],
 ) -> Action:
     prompt = (
-        "あなたはresponse plan(action)の決定器。\n"
+        "あなたはresponse plan(action)の決定器\n"
+        "※重要 前置きや装飾は不要で、必ずJSONのみを出力すること\n\n"
         "入力に基づいて適切な応答モードと質問方針を決定してください。\n"
-        "<入力>\n"
+        "【入力フィールド】\n"
         "- joint_context: 現在の枠組み/役割/規範。response_modeや質問密度の制約\n"
         "- deep_decision: deep_*の理由やrepair計画。応答方針に反映。\n"
         "- predictions: L0-L4の浅い予測。応答モードの選択\n"
@@ -71,14 +72,13 @@ async def _decide_action(
         "- epistemic_state: 不確実性/高ステークス。慎重さの調整\n"
         "- affective_state: 感情/関係指標。語調や質問量の調整\n"
         "- allowed_modes: 許可されたモード\n\n"
-        "<出力>\n"
+        "【出力フィールド】\n"
         "response_mode：このターンでアシスタントが採用する振る舞いの種類（frame に基づき許可された allowed_modes の中から選択）\n"
         "questions_asked：このターンで実際に投げる質問の数（norms.question_budget の遵守確認用）\n"
         "confirm_questions：理解確認や修復のために用いる短い確認質問のリスト（要約確認・意図確認など）\n"
         "did_memory_search：このターンで記憶検索（Chroma 等）を実行したかどうか\n"
         "did_web_search：このターンで外部Web検索（Firecrawl 等）を実行したかどうか\n"
-        "【重要】前置きや装飾は不要で、必ずJSONのみを出力すること\n"
-        "出力フォーマット\n"
+        "【出力フォーマット】\n"
         "{\n"
         '"response_mode": "allowed_modesのいずれか", \n'
         '"questions_asked": int, \n'
@@ -95,7 +95,7 @@ async def _decide_action(
                     "role": "user",
                     "content": (
                         "入力に基づいて適切な応答モードと質問方針を決定してください。\n"
-                        "【重要】前置きや装飾は不要で、必ずJSONのみを出力すること\n"
+                        "※重要 前置きや装飾は不要で、必ずJSONのみを出力すること\n\n"
                         "- joint_context: 現在の枠組み/役割/規範。response_modeや質問密度の制約\n"
                         f"{format_joint_context(inp.joint_context)}\n"
                         "- deep_decision: deep_*の理由やrepair計画。応答方針に反映n"
@@ -175,16 +175,32 @@ def make_decide_response_plan_node(deps: Deps):
         return DecidePlanOut(status="decide_response_plan:ok", action=action)
 
     async def node(state: AgentState) -> dict:
-        out = await inner(
-            DecidePlanIn(
-                joint_context=state["joint_context"],
-                deep_decision=state["deep_decision"],
-                epistemic_state=state["epistemic_state"],
-                predictions=state["predictions"],
-                metrics=state["metrics"],
-                affective_state=state["affective_state"],
+        try:
+            out = await inner(
+                DecidePlanIn(
+                    joint_context=state["joint_context"],
+                    deep_decision=state["deep_decision"],
+                    epistemic_state=state["epistemic_state"],
+                    predictions=state["predictions"],
+                    metrics=state["metrics"],
+                    affective_state=state["affective_state"],
+                )
             )
-        )
-        return {"action": out.action}
+            return {"action": out.action}
+        except Exception as e:
+            print("decide_response exception", e)
+            fallback_action: Action = {
+                "chosen_frame": state["joint_context"]["frame"],
+                "chosen_role_leader": state["joint_context"]["roles"]["leader"],
+                "response_mode": "ask",
+                "questions_asked": 0,
+                "question_budget": state["joint_context"]["norms"]["question_budget"],
+                "confirm_questions": [],
+                "did_memory_search": False,
+                "did_web_search": False,
+                "used_levels": ["L0", "L1", "L2", "L3", "L4"],
+                "used_depths": ["shallow"],
+            }
+            return {"action": fallback_action}
 
     return node

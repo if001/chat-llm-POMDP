@@ -36,13 +36,13 @@ async def _plan_repair(
 ) -> dict[str, Any]:
     prompt = (
         "あなたはdeep_repairの計画器\n"
-        "意味ズレや確認不足を埋めるための修復方針を決めてください\n"
+        "※重要 前置きや装飾は不要で、必ずJSONのみを出力すること\n"
+        "意味ズレや確認不足を埋めるための修復方針を決めてください\n\n"
         "<出力のフィールド>\n"
         "- strategy: 言い換え・要約確認・選択肢提示などの戦略\n"
         "- questions: 1-3件の短い質問\n"
-        "- optionality: 提案や指示を行う際に、選択肢提示（強制しない形）を基本とするかどうか\n"
-        "【重要】前置きや装飾は不要で、必ずJSONのみを出力すること\n\n"
-        "出力フォーマット\n"
+        "- optionality: 提案や指示を行う際に、選択肢提示（強制しない形）を基本とするかどうか\n\n"
+        "【出力フィールド】\n"
         "{\n"
         '"strategy": "短いラベル", \n'
         '"questions": ["短い確認質問"], \n'
@@ -57,6 +57,7 @@ async def _plan_repair(
                     "role": "user",
                     "content": (
                         "意味ズレや確認不足を埋めるための修復方針を決めてください\n"
+                        "※重要 前置きや装飾は不要で、必ずJSONのみを出力すること\n\n"
                         f"- user_input: {user_input}\n"
                         "- 直近の会話履歴(修復対象の直前文脈):\n"
                         f"{format_wm_messages(wm_messages)}\n"

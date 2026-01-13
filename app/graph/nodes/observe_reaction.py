@@ -37,11 +37,12 @@ async def _classify_reaction(
     prompt = (
         "あなたは前ターンへの反応分類器\n"
         "入力を用いて前ターンへの反応分類を推定してください。\n"
-        "<入力>\n"
+        "※重要 前置きや装飾は不要で、必ずJSONのみを出力すること\n\n"
+        "【入力フィールド】\n"
         "- user_input: ユーザー発話\n"
         "- prev_assistant_text: 前ターンのassistant出力\n"
         "- prev_action: 前ターンのaction。\n\n"
-        "<出力>\n"
+        "【出力フィールド】\n"
         "reaction_type：ユーザーの全体的な反応タイプの要約（受容・確認要求・訂正・拒否・先送り・話題転換・混在）\n"
         "ack_type：アシスタントの理解や要約に対する同意の明示度（明示的肯定／暗黙的肯定／混在／否定／評価不能）\n"
         "events：対話上の重要イベントを0/1で示すフラグ集合（複数同時に立つことがある）\n"
@@ -52,8 +53,7 @@ async def _classify_reaction(
         "events.E_frame_break：現在の会話枠組み（frame）が合っていないと示された\n"
         "events.E_overstep：踏み込み過多・言い方の不適切さが示唆された\n"
         "confidence：この行動観測（reaction_type / events 判定）の確信度（投票一致度など、0-1）\n\n"
-        "【重要】前置きや装飾は不要で、必ずJSONのみを出力すること\n"
-        "出力フォーマット\n"
+        "【出力フォーマット】\n"
         "{\n"
         '"reaction_type": "accept|clarify|correct|refuse|defer|topic_shift|mixed", \n'
         '"ack_type": "explicit_yes|implicit_yes|mixed|no|none", \n'
@@ -157,14 +157,31 @@ def make_observe_reaction_node(deps: Deps):
 
     @a_stream_writer("observe")
     async def node(state: AgentState) -> dict:
-        out = await inner(
-            ObserveReactionIn(
-                turn_id=state["turn_id"],
-                user_input=state["user_input"],
-                prev_assistant_text=state["last_turn"]["prev_assistant_text"],
-                prev_action=state["last_turn"]["prev_action"],
+        try:
+            out = await inner(
+                ObserveReactionIn(
+                    turn_id=state["turn_id"],
+                    user_input=state["user_input"],
+                    prev_assistant_text=state["last_turn"]["prev_assistant_text"],
+                    prev_action=state["last_turn"]["prev_action"],
+                )
             )
-        )
-        return {"observation": out.observation}
+            return {"observation": out.observation}
+        except Exception as e:
+            print("observe exception", e)
+            fallback: Observation = {
+                "reaction_type": "mixed",
+                "ack_type": "none",
+                "events": {
+                    "E_correct": 0,
+                    "E_refuse": 0,
+                    "E_clarify": 0,
+                    "E_miss": 0,
+                    "E_frame_break": 0,
+                    "E_overstep": 0,
+                },
+                "confidence": 0.0,
+            }
+            return {"observation": fallback}
 
     return node

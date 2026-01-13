@@ -40,19 +40,20 @@ async def _suggest_frame_update(
     metrics: Metrics,
 ) -> dict[str, Any]:
     prompt = (
-        "あなたは枠組み再設計の提案器。\n"
+        "あなたは枠組み再設計の提案器\n"
+        "※重要 前置きや装飾は不要で、必ずJSONのみを出力すること\n"
         "入力を用いて枠組み再設計の提案を行ってください。\n"
-        "<入力>\n"
+        "【入力フィールド】\n"
         "- joint_context: 現在の枠組み/役割/規範。再交渉の基準\n"
         "- observation: 反応分類。枠組み崩壊や抵抗兆候の判定\n"
         "- metrics: 直近指標(PE/ΔI/ΔG/ΔJ/risk等)。調整強度の判断\n\n"
-        "<出力>\n"
+        "【出力フィールド】\n"
         "frame：今後の対話で採用すべき会話の枠組み（何を共同でして進めるか）を指定\n"
         "question_budget：新しい枠組みにおいて、1ターンで許容される質問の最大数（探索度合いの調整）\n"
         "summarize_before_advice：助言や提案に入る前に、理解確認のための要約を必須とするかどうか\n"
         "max_response_length：新しい枠組みにおける1回の返答の最大長（情報量・認知負荷の制御）\n\n"
         "【重要】前置きや装飾は不要で、必ずJSONのみを出力すること\n"
-        "出力フォーマット\n"
+        "【出力フォーマット】\n"
         "{\n"
         '"frame": "explore|decide|execute|reflect|vent", \n'
         '"question_budget": int, \n'
@@ -67,8 +68,8 @@ async def _suggest_frame_update(
                 {
                     "role": "user",
                     "content": (
-                        "入力を用いて枠組み再設計の提案を行ってください。\n"
-                        "【重要】前置きや装飾は不要で、必ずJSONのみを出力すること\n"
+                        "枠組み再設計の提案を行ってください。\n"
+                        "※重要 前置きや装飾は不要で、必ずJSONのみを出力すること\n\n"
                         "- joint_context: 現在の枠組み/役割/規範。再交渉の基準\n"
                         f"{format_joint_context(joint_context)}\n"
                         "- observation: 反応分類。枠組み崩壊や抵抗兆候の判定\n"
@@ -80,6 +81,7 @@ async def _suggest_frame_update(
             ]
         )
     except Exception:
+        print("deep frame fallback")
         return {}
     return utils.parse_llm_response(result)
 

@@ -174,16 +174,16 @@ async def _extract_user_model_updates(
 ) -> dict[str, Any]:
     prompt = (
         "あなたはユーザー属性の抽出器\n"
+        "※重要 前置きや装飾は不要で、必ずJSONのみを出力すること\n"
         "入力はユーザー発話と直近の会話履歴からユーザーの属性を抽出してください。\n"
-        "明示的に根拠がある情報のみを抽出し、推測は入れないこと。\n"
-        "<出力>\n"
+        "明示的に根拠がある情報のみを抽出し、推測は入れないこと。\n\n"
+        "【出力フィールド】\n"
         "basic：ユーザーの基本的・比較的安定した属性や前提（名前、年齢、住んでいるエリア、所属、立場、役割、制約条件など）を表すフィールド集合\n"
         "preferences：ユーザーが明示的または反復的に示した好み・選好（生活スタイル、好み、趣味、回答の長さ、進め方、スタイル等）を表すフィールド集合\n"
         "tendencies：行動や反応の傾向として観測される特徴（慎重／即断、探索志向／結論志向など）を表すフィールド集合\n"
         "topics：ユーザーが関心を示している、または継続的に言及する話題領域を表すフィールド集合\n"
         "taboos：避けるべき話題・表現・踏み込みとして示唆された内容のリスト（高リスク要素）\n\n"
-        "【重要】前置きや装飾は不要で、必ずJSONのみを出力すること\n"
-        "出力フォーマット\n"
+        "【出力フォーマット】\n"
         "{\n"
         '"basic": {"field": {"value": "文字列", "confidence": 0-1}}, \n'
         '"preferences": {"field": {"value": "文字列", "confidence": 0-1}}, \n'
@@ -200,7 +200,7 @@ async def _extract_user_model_updates(
                     "role": "user",
                     "content": (
                         "ユーザー属性を抽出してください\n"
-                        "【重要】前置きや装飾は不要で、必ずJSONのみを出力すること\n\n"
+                        "※重要 前置きや装飾は不要で、必ずJSONのみを出力すること\n\n"
                         f"- user_input: {user_input}\n"
                         "- wm_messages: 直近の会話履歴(最大6件)。明示的根拠の確認に使う。\n"
                         f"{format_wm_messages(wm_messages, limit=6)}\n"
@@ -209,6 +209,7 @@ async def _extract_user_model_updates(
             ]
         )
     except Exception:
+        print("learn update fallback")
         return {}
     return utils.parse_llm_response(result)
 
