@@ -24,6 +24,7 @@ from app.graph.nodes.prompt_utils import (
     format_metrics,
     format_observation,
     format_unresolved_points,
+    format_wm_messages,
 )
 from app.ports.llm import LLMPort
 from app.graph.utils.write import a_stream_writer
@@ -93,6 +94,8 @@ async def _run_small_llm_json(
     except Exception as e:
         print("run small llm json error", e)
         return fallback
+    if layer == "L2":
+        print("L2 raw result", result)
     payload = parse_llm_response(result)
     if not payload:
         print("predict fallback: ", layer)
@@ -186,6 +189,7 @@ async def _predict_l1(
 async def _predict_l2(
     turn_id: int,
     user_input: str,
+    wm_messages: list[dict],
     small_llm: LLMPort,
 ) -> PredictionCommon:
     pred = _base_prediction("L2", turn_id)
@@ -200,7 +204,7 @@ async def _predict_l2(
         small_llm,
         (
             "あなたは局所意図/不確実性予測の分類器\n"
-            "※重要 前置きや装飾は不要で、必ずJSONのみを出力すること\n\n"
+            "※重要 前置きや装飾は不要で、必ずJSONのみを出力すること\n"
             "ユーザー入力を用いて意図/不確実性/質問設計必要性の推定を行ってください。\n\n"
             "【出力フィールド】\n"
             "- local_intent：この発話でユーザーが達成したい局所目的の短いラベル（例：情報提供、依頼、意思決定、整理、苦情など）\n"
@@ -218,8 +222,10 @@ async def _predict_l2(
             "}"
         ),
         (
-            "意図/不確実性/質問設計必要性の推定を行ってください。\n"
-            f"user_input: {user_input}\n"
+            "ユーザー入力と履歴から意図/不確実性/質問設計必要性の推定を行ってください。\n"
+            f"- user_input: {user_input}\n\n"
+            "- history:\n"
+            f"{format_wm_messages(wm_messages, limit=4)}\n\n"
             "※重要 前置きや装飾は不要で、必ずJSONのみを出力すること\n\n"
         ),
         {"outputs": fallback_outputs, "confidence": 0.0},
@@ -233,6 +239,7 @@ async def _predict_l2(
 async def _predict_l3(
     turn_id: int,
     user_input: str,
+    wm_messages: list[dict],
     common_ground: dict,
     unresolved_points: list[UnresolvedItem],
     observation: Observation,
@@ -250,6 +257,8 @@ async def _predict_l3(
             "※重要 前置きや装飾は不要で、必ずJSONのみを出力すること\n\n"
             "ユーザー入力を用いて人物モデル/共通基盤の欠落予測の分類器してください。\n\n"
             "【入力フィールド】\n"
+            "- user_input: ユーザー入力\n"
+            "- history: 直近の会話履歴\n"
             "- common_ground: 共有前提の一覧。欠落候補の推定\n"
             "- unresolved_points: 未解決の論点。ギャップ候補の推定\n"
             "- observation: 直近の反応分類。スタンス変化推定\n\n"
@@ -266,11 +275,13 @@ async def _predict_l3(
         ),
         (
             "ユーザー入力を用いて人物モデル/共通基盤の欠落予測の分類器してください。\n"
-            f"- user_input: {user_input}\n"
+            f"- user_input: {user_input}\n\n"
+            "- history:\n"
+            f"{format_wm_messages(wm_messages, limit=4)}\n\n"
             "- common_ground: 共有前提の一覧。欠落候補の推定に使う。\n"
-            f"{format_common_ground(common_ground)}\n"
+            f"{format_common_ground(common_ground)}\n\n"
             "- unresolved_points: 未解決の論点。ギャップ候補の推定に使う。\n"
-            f"{format_unresolved_points(unresolved_points)}\n"
+            f"{format_unresolved_points(unresolved_points)}\n\n"
             "- observation: 直近の反応分類。スタンス変化推定に使う。\n"
             f"{format_observation(observation)}\n\n"
             "※重要 前置きや装飾は不要で、必ずJSONのみを出力すること\n"
@@ -363,10 +374,11 @@ def make_predict_shallow_node(deps: Deps):
         l0, l1, l2, l3, l4 = await asyncio.gather(
             _predict_l0(inp.turn_id, inp.user_input, deps.small_llm),
             _predict_l1(inp.turn_id, inp.user_input, deps.small_llm),
-            _predict_l2(inp.turn_id, inp.user_input, deps.small_llm),
+            _predict_l2(inp.turn_id, inp.user_input, inp.wm_messages, deps.small_llm),
             _predict_l3(
                 inp.turn_id,
                 inp.user_input,
+                inp.wm_messages,
                 inp.common_ground,
                 inp.unresolved_points,
                 inp.observation,

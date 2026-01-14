@@ -6,13 +6,22 @@ from copy import deepcopy
 import json
 
 from app.core.deps import Deps
-from app.models.state import AgentState
+from app.models.state import (
+    Action,
+    AgentState,
+    AssumptionItem,
+    JointContext,
+    Observation,
+    UnresolvedItem,
+)
 from app.graph.nodes.prompt_utils import (
     format_common_ground,
     format_unresolved_points,
     format_wm_messages,
 )
 from app.ports.llm import LLMPort
+from app.graph.utils.write import a_stream_writer
+from app.graph.utils import utils
 
 
 @dataclass(frozen=True)
@@ -20,12 +29,12 @@ class UpdateJointActionIn:
     turn_id: int
     user_input: str
     wm_messages: list[dict[str, Any]]
-    common_ground: dict
-    unresolved_points: list[dict]
-    joint_context: dict
-    observation: dict
-    prev_action: dict
-    action: dict
+    common_ground: dict[str, list[AssumptionItem]]
+    unresolved_points: list[UnresolvedItem]
+    joint_context: JointContext
+    observation: Observation
+    prev_action: Action
+    action: Action
 
 
 @dataclass(frozen=True)
@@ -33,24 +42,6 @@ class UpdateJointActionOut:
     status: str
     common_ground: dict
     unresolved_points: list[dict]
-
-
-def _get_content(result: Any) -> str:
-    if isinstance(result, str):
-        return result
-    if hasattr(result, "content"):
-        return str(result.content)
-    return str(result)
-
-
-def _parse_json(text: str) -> dict[str, Any]:
-    try:
-        payload = json.loads(text)
-    except json.JSONDecodeError:
-        return {}
-    if not isinstance(payload, dict):
-        return {}
-    return payload
 
 
 def _clamp(value: float, lo: float = 0.0, hi: float = 1.0) -> float:
@@ -76,20 +67,27 @@ async def _extract_candidates(
     small_llm: LLMPort,
     user_input: str,
     wm_messages: list[dict[str, Any]],
-    common_ground: dict,
-    unresolved_points: list[dict],
+    common_ground: dict[str, list[AssumptionItem]],
+    unresolved_points: list[UnresolvedItem],
 ) -> dict[str, Any]:
     prompt = (
-        "あなたはcommon_ground/unresolved_pointsの抽出器。"
-        "入力はユーザー発話と直近の会話履歴、既存の共有前提/未解決点。"
-        "このターンで増えた前提候補と未解決点を1〜3件ずつ抽出する。"
-        "出力はJSONのみ。"
-        "出力フォーマット: {"
-        '"common_ground": [{"proposition": "短い命題", '
-        '"scope": "global|current_task", "confidence": 0-1}], '
-        '"unresolved_points": [{"question": "短い質問", '
-        '"kind": "semantic|epistemic|social", "priority": 0-1}]'
-        "}。必要な配列だけ出力。"
+        "あなたはcommon_ground/unresolved_pointsの抽出器\n"
+        "※重要 前置きや装飾は不要で、必ずJSONのみを出力すること\n\n"
+        "【入力フィールド】\n"
+        "- user_input: ユーザー入力\n"
+        "- history: 直近の会話履歴\n"
+        "- common_ground: 共有前提の一覧。欠落候補の推定\n"
+        "- unresolved_points: 未解決の論点。ギャップ候補の推定\n\n"
+        "【出力フィールド】\n"
+        "common_ground：共有できている前提\n"
+        "scope: 継続的（好み/習慣/恒常条件）なら global、今回だけ（期限/要件/状況）なら current_task\n"
+        "unresolved_points：共有できていない穴（埋めるべき未確定点のリスト）\n\n"
+        "【出力フォーマット】\n"
+        "{\n"
+        '"common_ground": [{"proposition": "短い命題", \n'
+        '"scope": "global|current_task", "confidence": 0-1}], \n'
+        '"unresolved_points": [{"question": "短い質問", \n'
+        "}\n"
     )
     try:
         result = await small_llm.ainvoke(
@@ -98,13 +96,13 @@ async def _extract_candidates(
                 {
                     "role": "user",
                     "content": (
-                        "入力:\n"
+                        "common_ground/unresolved_pointsの抽出を開始してください。\n"
                         f"- user_input: {user_input}\n"
-                        "- wm_messages: 直近の会話履歴(最大6件)。\n"
+                        "- history: 直近の会話履歴(最大6件)。\n"
                         f"{format_wm_messages(wm_messages, limit=6)}\n"
-                        "- common_ground: 既存の共有前提。重複回避に使う。\n"
+                        "- common_ground: 既存の共有前提。重複回避用\n"
                         f"{format_common_ground(common_ground)}\n"
-                        "- unresolved_points: 既存の未解決点。重複回避に使う。\n"
+                        "- unresolved_points: 既存の未解決点。重複回避用\n"
                         f"{format_unresolved_points(unresolved_points)}"
                     ),
                 },
@@ -112,24 +110,33 @@ async def _extract_candidates(
         )
     except Exception:
         return {}
-    return _parse_json(_get_content(result))
+    r = utils.parse_llm_response(result)
+    if len(r) == 0:
+        print("_extract_candidates( fallback")
+    return r
 
 
 async def _detect_resolved(
     small_llm: LLMPort,
     user_input: str,
-    unresolved_points: list[dict],
-    prev_action: dict,
-    observation: dict,
+    unresolved_points: list[UnresolvedItem],
+    prev_action: Action,
+    observation: Observation,
 ) -> dict[str, Any]:
     prompt = (
-        "あなたは未解決点の解消判定器。"
-        "入力はユーザー発話、未解決点の一覧、前ターンの質問、観測。"
-        "回答されたものだけをresolved_idsに列挙する。"
-        "出力はJSONのみ。"
-        "出力フォーマット: {"
-        '"resolved_ids": ["id1", "id2"]'
-        "}。解消なしなら空配列。"
+        "あなたは未解決点の解消判定器\n"
+        "※重要 前置きや装飾は不要で、必ずJSONのみを出力すること\n\n"
+        "【入力フィールド】\n"
+        "- user_input: ユーザー入力\n"
+        "- unresolved_points: 未解決の論点。ギャップ候補の推定。asked=trueのものを中心に解消判定。\n"
+        "- prev_action.confirm_questions: 以前の確認用の質問\n"
+        "- ack_type: アシスタントの理解や要約に対するユーザーの同意の明示度（明示的肯定／暗黙的肯定／混在／否定／評価不能）\n\n"
+        "【出力フィールド】\n"
+        "- resolved_ids: 未解決のunresolved_pointsのid配列\n\n"
+        "【出力フォーマット】\n"
+        "{\n"
+        '"resolved_ids": ["id1", "id2"]\n'
+        "}\n"
     )
     try:
         result = await small_llm.ainvoke(
@@ -138,19 +145,23 @@ async def _detect_resolved(
                 {
                     "role": "user",
                     "content": (
-                        "入力:\n"
+                        "未解決点の解消判定を行ってください\n"
+                        "※重要 前置きや装飾は不要で、必ずJSONのみを出力すること\n\n"
                         f"- user_input: {user_input}\n"
-                        "- unresolved_points: asked=trueのものを中心に解消判定。\n"
+                        "- unresolved_points:\n"
                         f"{format_unresolved_points(unresolved_points)}\n"
                         f"- prev_action.confirm_questions: {prev_action.get('confirm_questions', [])}\n"
-                        f"- observation.ack_type: {observation.get('ack_type', '')}"
+                        f"- ack_type: {observation.get('ack_type', '')}"
                     ),
                 },
             ]
         )
     except Exception:
         return {}
-    return _parse_json(_get_content(result))
+    r = utils.parse_llm_response(result)
+    if len(r) == 0:
+        print("_detect_resolved fallback")
+    return r
 
 
 async def _summarize_resolved(
@@ -159,14 +170,19 @@ async def _summarize_resolved(
     resolved_questions: list[str],
 ) -> dict[str, Any]:
     prompt = (
-        "あなたは解消済み未解決点の要約器。"
-        "入力は解消した質問とユーザー発話。"
-        "短い命題としてcommon_ground用に要約する。"
-        "出力はJSONのみ。"
-        "出力フォーマット: {"
-        '"assumptions": [{"proposition": "短い命題", '
-        '"scope": "global|current_task", "confidence": 0-1}]'
-        "}。解消なしなら空配列。"
+        "あなたは要約器\n"
+        "※重要 前置きや装飾は不要で、必ずJSONのみを出力すること\n\n"
+        "【入力フィールド】\n"
+        "- user_input: ユーザー入力\n"
+        "- resolved_questions: 解決済の質問\n\n"
+        "【出力フィールド】\n"
+        "assumptions: 解決済の質問の要約。解消なしなら空配列。\n"
+        "scope: 継続的（好み/習慣/恒常条件）なら global、今回だけ（期限/要件/状況）なら current_task\n\n"
+        "【出力フォーマット】\n"
+        "{\n"
+        '"assumptions": [{"proposition": "短い命題", \n'
+        '"scope": "global|current_task", "confidence": 0-1}]\n'
+        "}\n"
     )
     try:
         result = await small_llm.ainvoke(
@@ -175,16 +191,20 @@ async def _summarize_resolved(
                 {
                     "role": "user",
                     "content": (
-                        "入力:\n"
+                        "解消済み未解決点を判定してください\n"
+                        "※重要 前置きや装飾は不要で、必ずJSONのみを出力すること\n\n"
                         f"- user_input: {user_input}\n"
-                        f"- resolved_questions: {resolved_questions}"
+                        f"- resolved_questions: {resolved_questions}\n"
                     ),
                 },
             ]
         )
     except Exception:
         return {}
-    return _parse_json(_get_content(result))
+    r = utils.parse_llm_response(result)
+    if len(r) == 0:
+        print("_summarize_resolved fallback")
+    return r
 
 
 def _merge_common_ground(
@@ -375,7 +395,9 @@ def make_update_joint_action_node(deps: Deps):
         )
 
         asked_unresolved = [
-            item for item in merged_unresolved if item.get("asked") and not item.get("answered")
+            item
+            for item in merged_unresolved
+            if item.get("asked") and not item.get("answered")
         ]
         resolved_ids: set[str] = set()
         if asked_unresolved:

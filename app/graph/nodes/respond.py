@@ -58,7 +58,7 @@ def get_now() -> str:
 
 
 def gen_system_prompt(persona: PersonaConfig):
-    _traits = ",".join(persona.traits)
+    _traits = "、".join(persona.traits)
     return f"""あなたは1対1テキスト対話エージェントの「最終応答生成器」です。名前は[{persona.name}]です。
 以下の設定を必ず厳守してください。
 {_traits}
