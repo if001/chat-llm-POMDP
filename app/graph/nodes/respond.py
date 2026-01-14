@@ -206,6 +206,7 @@ def make_respond_node(deps: Deps):
                 print("respond invoke error", e)
                 result = "error"
             final_text = utils.get_content(result)
+
         resp: Response = {
             "final_text": final_text,
             "meta": {"turn_id": inp.turn_id},
@@ -230,6 +231,11 @@ def make_respond_node(deps: Deps):
                 affective_state=state["affective_state"],
             )
         )
-        return {"response": out.response}
+
+        new_messages = state["wm_messages"]
+        new_messages.append(
+            {"role": "assistant", "content": out.response["final_text"]}
+        )
+        return {"response": out.response, "wm_messages": new_messages}
 
     return node

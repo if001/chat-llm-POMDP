@@ -35,8 +35,10 @@ async def main():
     d = trace.load()
     graph = build_graph(deps)
     state = initial_state()
-    state["wm_messages"] = d["wm_messages"] or []
-    state["user_model"] = d["user_model"]
+    state["wm_messages"] = d.get("wm_messages", [])
+    _u = d.get("user_model")
+    if _u is not None:
+        state["user_model"] = _u
 
     while True:
         user_input = input("you> ").strip()

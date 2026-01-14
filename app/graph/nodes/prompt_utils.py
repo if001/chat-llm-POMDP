@@ -30,7 +30,9 @@ def format_wm_messages(wm_messages: list[dict[str, Any]], limit: int = 6) -> str
     if not wm_messages:
         return "なし"
     lines = []
-    for idx, msg in enumerate(wm_messages[-limit:], 1):
+    if len(wm_messages) > limit:
+        wm_messages = wm_messages[-limit:]
+    for idx, msg in enumerate(wm_messages, 1):
         role = _as_text(msg.get("role", ""))
         content = _as_text(msg.get("content", ""))
         lines.append(f"{idx}. role={role} / content={content}")

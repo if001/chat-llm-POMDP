@@ -107,7 +107,10 @@ class ChatEngine(BaseChatEngine):
         d = trace.load()
         self.graph = build_graph(deps)
         self.state = initial_state()
-        self.state["wm_messages"] = d["wm_messages"] or []
+        self.state["wm_messages"] = d.get("wm_messages", [])
+        _u = d.get("user_model")
+        if _u is not None:
+            self.state["user_model"] = _u
 
     async def chat_once(
         self,

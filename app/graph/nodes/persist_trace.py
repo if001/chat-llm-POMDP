@@ -26,19 +26,23 @@ def _build_learning_state(state: AgentState) -> dict:
         "unresolved_points": deepcopy(state["unresolved_points"]),
         "affective_state": deepcopy(state["affective_state"]),
         "epistemic_state": deepcopy(state["epistemic_state"]),
-        "user_model": deepcopy(state["user_model"]),
         "policy": deepcopy(state["policy"]),
     }
 
 
 def _build_trace_payload(state: AgentState) -> dict:
+    max_history_len = 10
+    wm_messages = state["wm_messages"]
+    if len(wm_messages) > max_history_len:
+        wm_messages = state["wm_messages"][-max_history_len:]
+
     return {
         "turn": {
             "id": state["turn_id"],
             "user_input": state["user_input"],
         },
         "user_model": deepcopy(state["user_model"]),
-        "wm_messages": state["wm_messages"][-4:],
+        "wm_messages": wm_messages,
         "learning_state": _build_learning_state(state),
         "signals": {
             "predictions": deepcopy(state["predictions"]),
@@ -64,6 +68,7 @@ def make_persist_trace_node(deps: Deps):
 
     async def node(state: AgentState) -> dict:
         payload = _build_trace_payload(state)
+        print('state["wm_messages"]', state["wm_messages"])
         print("L1", state["predictions"]["L1"])
         print("L2", state["predictions"]["L2"])
         print("L3", state["predictions"]["L3"])
