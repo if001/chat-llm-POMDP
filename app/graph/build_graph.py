@@ -17,6 +17,7 @@ from app.graph.nodes.deep_web import make_deep_web_node
 from app.graph.nodes.deep_frame import make_deep_frame_node
 from app.graph.nodes.decide_response_plan import make_decide_response_plan_node
 from app.graph.nodes.respond import make_respond_node
+from app.graph.nodes.deep_intent_plan import make_deep_intent_plan_node
 from app.graph.nodes.update_joint_action import make_update_joint_action_node
 from app.graph.nodes.learn_update import make_learn_update_node
 from app.graph.nodes.persist_trace import make_persist_trace_node
@@ -25,14 +26,19 @@ from app.graph.nodes.persist_trace import make_persist_trace_node
 def _route_after_gate(
     state: AgentState,
 ) -> Literal[
-    "deep_repair", "deep_memory", "deep_web", "deep_frame", "decide_response_plan"
+    "deep_repair",
+    "deep_memory",
+    "deep_web",
+    "deep_frame",
+    "deep_intent_plan",
+    "decide_response_plan",
 ]:
     print("gate plan: ", state["deep_decision"]["deep_chain"]["plan"])
     plan = state["deep_decision"]["deep_chain"]["plan"]
     if not plan:
-        return "decide_response_plan"
+        return "deep_intent_plan"
     if len(plan) == 0:
-        return "decide_response_plan"
+        return "deep_intent_plan"
     nxt = plan[0]
     if nxt == "deep_repair":
         return "deep_repair"
@@ -42,7 +48,7 @@ def _route_after_gate(
         return "deep_web"
     if nxt == "deep_frame":
         return "deep_frame"
-    return "decide_response_plan"
+    return "deep_intent_plan"
 
 
 def build_graph(deps: Deps):
@@ -59,6 +65,7 @@ def build_graph(deps: Deps):
     g.add_node("deep_memory", make_deep_memory_node(deps))
     g.add_node("deep_web", make_deep_web_node(deps))
     g.add_node("deep_frame", make_deep_frame_node(deps))
+    g.add_node("deep_intent_plan", make_deep_intent_plan_node(deps))
 
     g.add_node("decide_response_plan", make_decide_response_plan_node(deps))
     g.add_node("respond", make_respond_node(deps))
@@ -81,6 +88,7 @@ def build_graph(deps: Deps):
     g.add_edge("deep_memory", "decide_response_plan")
     g.add_edge("deep_web", "decide_response_plan")
     g.add_edge("deep_frame", "decide_response_plan")
+    g.add_edge("deep_intent_plan", "decide_response_plan")
 
     # finalize
     g.add_edge("decide_response_plan", "respond")

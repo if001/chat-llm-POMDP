@@ -265,6 +265,69 @@ def format_action(action: dict[str, Any]) -> str:
     )
 
 
+def format_intent_plan(intent_plan: dict[str, Any]) -> str:
+    if not intent_plan:
+        return "なし"
+    steps = intent_plan.get("plan_steps", [])
+    return "\n".join(
+        [
+            f"intent_summary: {_as_text(intent_plan.get('intent_summary', ''))}",
+            f"plan_steps: {_format_list(steps)}",
+            f"need_memory: {_as_text(intent_plan.get('need_memory', ''))}",
+            f"memory_query: {_as_text(intent_plan.get('memory_query', ''))}",
+            f"need_web: {_as_text(intent_plan.get('need_web', ''))}",
+            f"web_query: {_as_text(intent_plan.get('web_query', ''))}",
+            f"response_mode_hint: {_as_text(intent_plan.get('response_mode_hint', ''))}",
+        ]
+    )
+
+
+def format_user_model(user_model: dict[str, Any], limit: int = 5) -> str:
+    if not user_model:
+        return "なし"
+    lines = []
+    for key in ["basic", "preferences", "tendencies", "topics"]:
+        section = user_model.get(key, {})
+        if not isinstance(section, dict) or not section:
+            continue
+        lines.append(f"{key}:")
+        for idx, (field, attr) in enumerate(section.items(), 1):
+            if idx > limit:
+                lines.append(f"... {len(section) - limit} more")
+                break
+            if not isinstance(attr, dict):
+                lines.append(f"- {field}: {attr}")
+                continue
+            lines.append(
+                " / ".join(
+                    [
+                        f"- {field}",
+                        f"value={_as_text(attr.get('value', ''))}",
+                        f"confidence={_as_text(attr.get('confidence', ''))}",
+                    ]
+                )
+            )
+    taboos = user_model.get("taboos", [])
+    if isinstance(taboos, list) and taboos:
+        lines.append("taboos:")
+        for idx, attr in enumerate(taboos[:limit], 1):
+            if not isinstance(attr, dict):
+                lines.append(f"- {attr}")
+                continue
+            lines.append(
+                " / ".join(
+                    [
+                        f"- {idx}",
+                        f"value={_as_text(attr.get('value', ''))}",
+                        f"confidence={_as_text(attr.get('confidence', ''))}",
+                    ]
+                )
+            )
+        if len(taboos) > limit:
+            lines.append(f"... {len(taboos) - limit} more")
+    return "\n".join(lines) if lines else "なし"
+
+
 def format_snippets(
     snippets: list[Any],
     label: str,

@@ -265,6 +265,7 @@ class AgentState(TypedDict):
     # === predictions / deep decision ===
     predictions: Predictions
     deep_decision: DeepDecision
+    intent_plan: dict[str, Any]
 
     # === action / response ===
     action: Action
@@ -349,6 +350,7 @@ def initial_state() -> AgentState:
             "repair_plan": {"strategy": "", "questions": [], "optionality": False},
             "deep_chain": {"plan": [], "executed": [], "stop_reason": ""},
         },
+        "intent_plan": {},
         "action": {
             "chosen_frame": "explore",
             "chosen_role_leader": "joint",

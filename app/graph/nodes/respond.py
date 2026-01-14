@@ -20,6 +20,7 @@ from app.models.state import (
 from app.graph.nodes.prompt_utils import (
     format_affective_state,
     format_common_ground,
+    format_intent_plan,
     format_joint_context,
     format_unresolved_points,
     format_snippets,
@@ -45,6 +46,7 @@ class RespondIn:
     common_ground: dict[str, list[AssumptionItem]]
     unresolved_points: list[UnresolvedItem]
     affective_state: AffectiveState
+    intent_plan: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -154,6 +156,9 @@ def gen_prompt(
 【response_plan（このターンの発話戦略）】
 - response_mode: {response_mode}
 
+【intent_plan（意図推定と行動計画）】
+{format_intent_plan(inp.intent_plan)}
+
 【knowledge_inputs】
 {memory_text}
 
@@ -229,6 +234,7 @@ def make_respond_node(deps: Deps):
                 common_ground=state["common_ground"],
                 unresolved_points=state["unresolved_points"],
                 affective_state=state["affective_state"],
+                intent_plan=state["intent_plan"],
             )
         )
 
