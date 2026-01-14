@@ -37,6 +37,8 @@ def _build_trace_payload(state: AgentState) -> dict:
             "id": state["turn_id"],
             "user_input": state["user_input"],
         },
+        "user_model": deepcopy(state["user_model"]),
+        "wm_messages": state["wm_messages"][-4:],
         "learning_state": _build_learning_state(state),
         "signals": {
             "predictions": deepcopy(state["predictions"]),
@@ -62,6 +64,10 @@ def make_persist_trace_node(deps: Deps):
 
     async def node(state: AgentState) -> dict:
         payload = _build_trace_payload(state)
+        print("L1", state["predictions"]["L1"])
+        print("L2", state["predictions"]["L2"])
+        print("L3", state["predictions"]["L3"])
+        print("L4", state["predictions"]["L4"])
         _ = await inner(PersistTraceIn(turn_id=state["turn_id"], payload=payload))
         return {}
 

@@ -15,7 +15,7 @@ from app.graph.build_graph import build_graph
 async def main():
     s = Settings()
     emb = OllamaEmbedder(model=s.embed_model, base_url=s.ollama_base_url)
-
+    trace = JsonTraceAdapter(trace_dir=s.trace_dir)
     deps = Deps(
         llm=OllamaChatAdapter(base_url=s.ollama_base_url, model=s.llm_model),
         small_llm=OllamaChatAdapter(
@@ -29,11 +29,14 @@ async def main():
         web=FirecrawlSearchAdapter(
             api_key=s.firecrawl_api_key, base_url=s.firecrawl_base_url
         ),
-        trace=JsonTraceAdapter(trace_dir=s.trace_dir),
+        trace=trace,
     )
 
+    d = trace.load()
     graph = build_graph(deps)
     state = initial_state()
+    state["wm_messages"] = d["wm_messages"] or []
+    state["user_model"] = d["user_model"]
 
     while True:
         user_input = input("you> ").strip()

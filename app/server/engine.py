@@ -88,7 +88,7 @@ class ChatEngine(BaseChatEngine):
     def __init__(self):
         s = Settings()
         emb = OllamaEmbedder(model=s.embed_model, base_url=s.ollama_base_url)
-
+        trace = JsonTraceAdapter(trace_dir=s.trace_dir)
         deps = Deps(
             llm=OllamaChatAdapter(base_url=s.ollama_base_url, model=s.llm_model),
             small_llm=OllamaChatAdapter(
@@ -102,11 +102,12 @@ class ChatEngine(BaseChatEngine):
             web=FirecrawlSearchAdapter(
                 api_key=s.firecrawl_api_key, base_url=s.firecrawl_base_url
             ),
-            trace=JsonTraceAdapter(trace_dir=s.trace_dir),
+            trace=trace,
         )
-
+        d = trace.load()
         self.graph = build_graph(deps)
         self.state = initial_state()
+        self.state["wm_messages"] = d["wm_messages"] or []
 
     async def chat_once(
         self,
@@ -132,22 +133,21 @@ class ChatEngine(BaseChatEngine):
         tools: Optional[List[ToolDefinition]],
         think: Optional[ThinkType],
     ) -> AsyncIterator[EngineChunk]:
-        thinking = None
         user_in = next((m.content for m in reversed(messages) if m.role == "user"), "")
-
-        is_send = False
-        final_answer = ""
-
-        async for mode, chunk in self.graph.astream(
-            self.state, stream_mode=["values", "custom"]
-        ):
-            if mode == "custom":
-                if chunk["type"] == "status":
-                    pass
-                if chunk["type"] == "thinking":
-                    yield EngineChunk(thinking_delta="[" + chunk["text"] + "] ")
-                if chunk["type"] == "token":
-                    yield EngineChunk(content_delta=chunk["text"])
+        self.state["user_input"] = user_in
+        try:
+            async for mode, chunk in self.graph.astream(
+                self.state, stream_mode=["values", "custom"]
+            ):
+                if mode == "custom":
+                    if chunk["type"] == "status":
+                        pass
+                    if chunk["type"] == "thinking":
+                        yield EngineChunk(thinking_delta="[" + chunk["text"] + "] ")
+                    if chunk["type"] == "token":
+                        yield EngineChunk(content_delta=chunk["text"])
+        except:
+            return
 
 
 def build_engine() -> BaseChatEngine:
