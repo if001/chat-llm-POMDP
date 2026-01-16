@@ -8,6 +8,7 @@ from app.adapters.ollama_llm import OllamaChatAdapter, OllamaEmbedder
 from app.adapters.firecrawl_search import FirecrawlSearchAdapter
 from app.adapters.chroma_memory import ChromaMemoryAdapter
 from app.adapters.trace_json import JsonTraceAdapter
+from app.adapters.clock import SystemClock
 from app.models.state import initial_state
 from app.graph.build_graph import build_graph
 
@@ -16,20 +17,24 @@ async def main():
     s = Settings()
     emb = OllamaEmbedder(model=s.embed_model, base_url=s.ollama_base_url)
     trace = JsonTraceAdapter(trace_dir=s.trace_dir)
+    llm = OllamaChatAdapter(base_url=s.ollama_base_url, model=s.llm_model)
+    small_llm = OllamaChatAdapter(base_url=s.ollama_base_url, model=s.small_llm_model)
+
     deps = Deps(
-        llm=OllamaChatAdapter(base_url=s.ollama_base_url, model=s.llm_model),
-        small_llm=OllamaChatAdapter(
-            base_url=s.ollama_base_url, model=s.small_llm_model
-        ),
+        llm=llm,
+        small_llm=small_llm,
         memory=ChromaMemoryAdapter(
             persist_dir=s.chroma_persist_dir,
             collection_name=s.chroma_collection,
-            embed_query=emb,
+            embeder=emb,
+            llm=llm,
+            small_llm=small_llm,
         ),
         web=FirecrawlSearchAdapter(
             api_key=s.firecrawl_api_key, base_url=s.firecrawl_base_url
         ),
         trace=trace,
+        clock=SystemClock(),
     )
 
     d = trace.load()

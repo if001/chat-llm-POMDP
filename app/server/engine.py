@@ -2,10 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import AsyncIterator, List, Optional
-from datetime import datetime
 from zoneinfo import ZoneInfo
-from langchain_core.messages import HumanMessage, AIMessage
-from langchain_core.messages.utils import _chunk_to_msg
 from app.server.schema import ChatMessage, ToolCall, ToolDefinition, ThinkType
 
 
@@ -15,6 +12,7 @@ from app.adapters.ollama_llm import OllamaChatAdapter, OllamaEmbedder
 from app.adapters.firecrawl_search import FirecrawlSearchAdapter
 from app.adapters.chroma_memory import ChromaMemoryAdapter
 from app.adapters.trace_json import JsonTraceAdapter
+from app.adapters.clock import SystemClock
 from app.models.state import initial_state
 from app.graph.build_graph import build_graph
 
@@ -89,20 +87,25 @@ class ChatEngine(BaseChatEngine):
         s = Settings()
         emb = OllamaEmbedder(model=s.embed_model, base_url=s.ollama_base_url)
         trace = JsonTraceAdapter(trace_dir=s.trace_dir)
+        llm = OllamaChatAdapter(base_url=s.ollama_base_url, model=s.llm_model)
+        small_llm = OllamaChatAdapter(
+            base_url=s.ollama_base_url, model=s.small_llm_model
+        )
         deps = Deps(
-            llm=OllamaChatAdapter(base_url=s.ollama_base_url, model=s.llm_model),
-            small_llm=OllamaChatAdapter(
-                base_url=s.ollama_base_url, model=s.small_llm_model
-            ),
+            llm=llm,
+            small_llm=small_llm,
             memory=ChromaMemoryAdapter(
                 persist_dir=s.chroma_persist_dir,
                 collection_name=s.chroma_collection,
-                embed_query=emb,
+                embeder=emb,
+                llm=llm,
+                small_llm=small_llm,
             ),
             web=FirecrawlSearchAdapter(
                 api_key=s.firecrawl_api_key, base_url=s.firecrawl_base_url
             ),
             trace=trace,
+            clock=SystemClock(),
         )
         d = trace.load()
         self.graph = build_graph(deps)
