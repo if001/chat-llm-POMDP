@@ -193,6 +193,7 @@ class Response(TypedDict):
 
 
 class UserAttribute(TypedDict):
+    field: str
     value: str
     confidence: float
     evidence: list[str]
@@ -200,10 +201,10 @@ class UserAttribute(TypedDict):
 
 
 class UserModel(TypedDict):
-    basic: dict[str, UserAttribute]
-    preferences: dict[str, UserAttribute]
-    tendencies: dict[str, UserAttribute]
-    topics: dict[str, UserAttribute]
+    basic: list[UserAttribute]
+    preferences: list[UserAttribute]
+    tendencies: list[UserAttribute]
+    topics: list[UserAttribute]
     taboos: list[UserAttribute]
     last_updated_turn: int
 
@@ -214,6 +215,9 @@ class UserModel(TypedDict):
 class PolicyState(TypedDict):
     theta_deep: float
     deep_history: list[str]  # 直近のdeep実行ログ（種類や回数を保持）
+    repair_stats: dict[str, dict[str, float]]
+    rolling: dict[str, float]
+    pending_evals: list[dict[str, Any]]
     # 将来: repair_success_stats, norms_update_stats, frame_prior などをここへ追加
 
 
@@ -262,6 +266,7 @@ class AgentState(TypedDict):
     # === predictions / deep decision ===
     predictions: Predictions
     deep_decision: DeepDecision
+    intent_plan: dict[str, Any]
 
     # === action / response ===
     action: Action
@@ -274,6 +279,9 @@ class AgentState(TypedDict):
 
     # === last turn snapshot ===
     last_turn: LastTurn
+
+    ## episode記憶用にhistoryを保持
+    episode_memory_messages: list[dict[str, Any]]
 
 
 def initial_state() -> AgentState:
@@ -310,10 +318,10 @@ def initial_state() -> AgentState:
             "high_stakes": {"value": 0.0, "categories": [], "confidence": 0.0},
         },
         "user_model": {
-            "basic": {},
-            "preferences": {},
-            "tendencies": {},
-            "topics": {},
+            "basic": [],
+            "preferences": [],
+            "tendencies": [],
+            "topics": [],
             "taboos": [],
             "last_updated_turn": 0,
         },
@@ -346,6 +354,7 @@ def initial_state() -> AgentState:
             "repair_plan": {"strategy": "", "questions": [], "optionality": False},
             "deep_chain": {"plan": [], "executed": [], "stop_reason": ""},
         },
+        "intent_plan": {},
         "action": {
             "chosen_frame": "explore",
             "chosen_role_leader": "joint",
@@ -364,6 +373,15 @@ def initial_state() -> AgentState:
         "policy": {
             "theta_deep": 1.2,
             "deep_history": [],
+            "repair_stats": {
+                "rephrase": {"alpha": 2.0, "beta": 2.0},
+                "summarize_confirm": {"alpha": 2.0, "beta": 2.0},
+                "offer_options": {"alpha": 2.0, "beta": 2.0},
+                "intent_check": {"alpha": 2.0, "beta": 2.0},
+                "meta_frame": {"alpha": 2.0, "beta": 2.0},
+            },
+            "rolling": {},
+            "pending_evals": [],
         },
         "last_turn": {
             "prev_assistant_text": "",
@@ -378,4 +396,5 @@ def initial_state() -> AgentState:
             "prev_unresolved_count": 0,
             "resolved_count_last_turn": 0,
         },
+        "episode_memory_messages": [],
     }

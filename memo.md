@@ -1,3 +1,44 @@
+## todo
+- persist_trace
+- llmのプロンプト
+LLMを呼び出しているコード確認しプロンプトを修正しましょう。(small_llm.ainvokeやllm.ainvoke、_run_small_llm_jsonなど)
+入力が何で、入力は何に使うものか、出力フォーマットはどうすべきか、など詳細にしましょう。
+入力はstateやdesign_docを参照し何に使うか、どう使われるかを確認してください。
+また、dictは直接プロンプトに用いらないようにし、各フィールドが何であるかの説明を追加してください。
+プロンプトは日本語となるようにしてください。
+LLMのプロンプト修正
+
+
+
+        f"あなたは[{persona.name}]という名前の親切なアシスタントです。\n"
+        "\n"
+        "応答モードが与えられます。現在の応答モードに従い、以下の設定に準じて応答してください。\n"
+        "explore：状況や前提を共有するために情報を集める\n"
+        "decide：複数の選択肢を比較し、判断や方針を決める\n"
+        "execute：決まった方針を具体的な手順や行動に落とす\n"
+        "reflect：経験や考えを振り返り、意味づけや整理を行う\n"
+        "vent：結論を急がず、感情の表出や共有そのものを目的とする\n"
+        "\n"
+        "もしmemory/web snippetsが提供されている場合、応答をそれらに基づいて構築し、暗黙的に引用してください。\n"
+        "ただし憶測で情報を追加しないこと。\n\n"
+        "以下のPersonaとtoneを必ず厳守してください。\n"
+        f"{_traits}"
+
+
+                        f"現在の応答モードは[{response_mode}]です。\n"
+                        f"{norms['question_budget']}: 返答に含めることのできる質問の数\n"
+                        f"{norms['max_response_length']}: 返答の最大文字数\n"
+                        f"{norms['optionality_required']}: 提案や指示を行う際に、選択肢提示を基本とするかどうか\n"
+                        f"{norms['summarize_before_advice']}: 助言や提案の前に、理解確認のための要約を挟むことを要求するかどうか\n"
+                        f"{norms['stance_sensitive']}: 相手との距離感や警戒度に応じて、踏み込みや表現を抑制すべきかどうか\n"
+                        "\n"
+                        f"confirm_questions: {confirm_questions}\n"
+                        f"repair_plan: {repair_plan}\n"
+                        # f"predictions: {inp.predictions}\n"
+                        f"sources: {sources_block}\n"
+                        f"user_input: {inp.user_input}\n"
+                        "Return the assistant response in Japanese."
+
 app/graph/nodesの中身を実装してください。
 app/graph/nodesの中身はコメントのみで実装が行われていません。
 design docに従って実装してください。

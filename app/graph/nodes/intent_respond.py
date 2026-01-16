@@ -1,4 +1,3 @@
-# app/graph/nodes/respond.py
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -6,14 +5,12 @@ from typing import Any
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-
 from app.core.deps import Deps
 from app.models.state import (
     AffectiveState,
     AgentState,
     JointContext,
     Response,
-    Action,
     AssumptionItem,
     UnresolvedItem,
 )
@@ -26,18 +23,16 @@ from app.graph.nodes.prompt_utils import (
     format_snippets,
 )
 from app.models.types import SourcesUsed
-from app.ports.llm import LLMPort
 from app.config.persona import PersonaConfig
 from app.graph.utils.write import a_stream_writer, write_token
 from app.graph.utils import utils
 
 
 @dataclass(frozen=True)
-class RespondIn:
+class IntentRespondIn:
     turn_id: int
     user_input: str
     wm_messages: list[dict]
-    action: Action
     sources_used: SourcesUsed
     joint_context: JointContext
     memory_snippets: list[dict]
@@ -50,23 +45,23 @@ class RespondIn:
 
 
 @dataclass(frozen=True)
-class RespondOut:
+class IntentRespondOut:
     status: str
     response: Response
 
 
-def get_now() -> str:
+def _now() -> str:
     return datetime.now(ZoneInfo("Asia/Tokyo")).isoformat()
 
 
-def gen_system_prompt(persona: PersonaConfig):
+def _gen_system_prompt(persona: PersonaConfig):
     _traits = "、".join(persona.traits)
-    return f"""あなたは1対1テキスト対話エージェントの「最終応答生成器」です。名前は[{persona.name}]です。
+    return f"""あなたは1対1テキスト対話エージェントの「意図実行応答生成器」です。名前は[{persona.name}]です。
 以下の設定を必ず厳守してください。
 {_traits}
 
 目的は「共同行為（joint action）の制約のもとで、将来にわたる期待情報量・関係安定・共同性を最大化する」ことです。
-あなたは、下記の入力に基づいて、返答を日本語で生成してください。
+このノードは推定した意図に沿って、計画を実行する応答を生成します。
 
 【入力の説明（状態 / state）】
 1) joint_context：いまの対話の「共同作業の状態」
@@ -93,7 +88,7 @@ def gen_system_prompt(persona: PersonaConfig):
 - used_levels / used_depths：このターンで参照した予測レイヤーと深さ（内部ログ用の情報）
 ※あなたは内部用語をそのまま出力してはいけません。
 
-6) sources_block：外部/記憶から得た情報
+6) knowledge_inputs：外部/記憶から得た情報
 存在すれば応答の根拠として利用してください。
 
 【あなたが守るべき生成ルール】
@@ -115,28 +110,23 @@ def gen_system_prompt(persona: PersonaConfig):
 """
 
 
-def gen_prompt(
-    inp: RespondIn,
-) -> str:
-    response_mode = inp.action.get("response_mode")
-    # confirm_questions = inp.action.get("confirm_questions", [])
+def _gen_prompt(inp: IntentRespondIn) -> str:
     frame = inp.joint_context.get("frame")
     leader = inp.joint_context.get("roles", {}).get("leader")
 
     norms_text = format_joint_context(inp.joint_context)
     affective_text = format_affective_state(inp.affective_state)
-
-    memory_text = (format_snippets(inp.memory_snippets, "memory_snippets"),)
-    web_text = (format_snippets(inp.web_snippets, "web_snippets"),)
-
     common_ground_text = format_common_ground(inp.common_ground)
     unresolved_points_text = format_unresolved_points(inp.unresolved_points)
+    memory_text = (format_snippets(inp.memory_snippets, "memory_snippets"),)
+    web_text = (format_snippets(inp.web_snippets, "web_snippets"),)
+    intent_text = format_intent_plan(inp.intent_plan)
 
     return f"""【このターンのユーザー入力】
 {inp.user_input}
 
 【current_time】
-{get_now()}
+{_now()}
 
 【joint_context】
 - frame: {frame}
@@ -153,11 +143,8 @@ def gen_prompt(
 【affective_state（感情・距離の信号）】
 {affective_text}
 
-【response_plan（このターンの発話戦略）】
-- response_mode: {response_mode}
-
 【intent_plan（意図推定と行動計画）】
-{format_intent_plan(inp.intent_plan)}
+{intent_text}
 
 【knowledge_inputs】
 {memory_text}
@@ -165,26 +152,18 @@ def gen_prompt(
 {web_text}
 
 【出力指示】
-- norms と frame を守って、ユーザーへの最終返答を作成してください。
-- 質問は question_budget 以内。
-- summarize_before_advice=true の場合は、提案前に短い要約確認を入れてください。
+- 意図に沿って、計画( plan_steps )を実行する形で返答してください。
+- 不確実な点は断定せず、必要なら質問する（question_budget以内）。
+- norms と frame を守る。
+- 出力はユーザーへの最終返答のみ。
 """
 
 
-def make_respond_node(deps: Deps):
-    async def inner(inp: RespondIn, stream=True) -> RespondOut:
-        """
-        何をするか:
-        - action.response_mode に従って最終応答文を生成（LLM）
-        - deep_decision.repair_plan がある場合は質問/選択肢/言い換えを組み込む
-        """
+def make_intent_respond_node(deps: Deps):
+    async def inner(inp: IntentRespondIn, stream=True) -> IntentRespondOut:
         persona = PersonaConfig.default()
-        system_prompt = gen_system_prompt(persona)
-        prompt = gen_prompt(inp)
-        print(system_prompt)
-        print("=" * 20)
-        print(prompt)
-        print("=" * 20)
+        system_prompt = _gen_system_prompt(persona)
+        prompt = _gen_prompt(inp)
 
         final_text = ""
         if stream:
@@ -197,7 +176,7 @@ def make_respond_node(deps: Deps):
                 text = getattr(chunk, "content", "") or ""
                 if text:
                     final_text += text
-                    write_token(text, node="respond")
+                    write_token(text, node="intent_respond")
         else:
             result = ""
             try:
@@ -208,7 +187,7 @@ def make_respond_node(deps: Deps):
                     ]
                 )
             except Exception as e:
-                print("respond invoke error", e)
+                print("intent_respond invoke error", e)
                 result = "error"
             final_text = utils.get_content(result)
 
@@ -216,16 +195,15 @@ def make_respond_node(deps: Deps):
             "final_text": final_text,
             "meta": {"turn_id": inp.turn_id},
         }
-        return RespondOut(status="respond:ok", response=resp)
+        return IntentRespondOut(status="intent_respond:ok", response=resp)
 
-    @a_stream_writer("respond")
+    @a_stream_writer("intent_respond")
     async def node(state: AgentState) -> dict:
         out = await inner(
-            RespondIn(
+            IntentRespondIn(
                 turn_id=state["turn_id"],
                 user_input=state["user_input"],
                 wm_messages=state["wm_messages"],
-                action=state["action"],
                 sources_used=state["metrics"]["sources_used"],
                 joint_context=state["joint_context"],
                 memory_snippets=state["memory_snippets"],
@@ -239,8 +217,9 @@ def make_respond_node(deps: Deps):
         )
 
         new_messages = state["wm_messages"]
+        final_text = out.response["final_text"]
         new_messages.append(
-            {"role": "assistant", "content": out.response["final_text"]}
+            {"role": "assistant", "content": f"[{deps.clock.now_iso()}] {final_text}"}
         )
         return {"response": out.response, "wm_messages": new_messages}
 

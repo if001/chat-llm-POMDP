@@ -8,7 +8,10 @@ from typing import Any
 from app.core.deps import Deps
 from app.models.state import AgentState
 from app.models.types import DeepDecision
+from app.graph.nodes.prompt_utils import format_wm_messages
 from app.ports.llm import LLMPort
+from app.graph.utils import utils
+from app.graph.utils.write import a_stream_writer
 
 
 @dataclass(frozen=True)
@@ -26,32 +29,25 @@ class DeepRepairOut:
     wm_messages: list[dict]
 
 
-def _get_content(result: Any) -> str:
-    if isinstance(result, str):
-        return result
-    if hasattr(result, "content"):
-        return str(result.content)
-    return str(result)
-
-
-def _parse_json(text: str) -> dict[str, Any]:
-    try:
-        payload = json.loads(text)
-    except json.JSONDecodeError:
-        return {}
-    if not isinstance(payload, dict):
-        return {}
-    return payload
-
-
 async def _plan_repair(
     small_llm: LLMPort,
     user_input: str,
     wm_messages: list[dict],
 ) -> dict[str, Any]:
     prompt = (
-        "Return JSON with keys: strategy, questions (list), optionality (bool). "
-        "Keep questions short."
+        "あなたはdeep_repairの計画器\n"
+        "※重要 前置きや装飾は不要で、必ずJSONのみを出力すること\n"
+        "意味ズレや確認不足を埋めるための修復方針を決めてください\n\n"
+        "<出力のフィールド>\n"
+        "- strategy: 言い換え・要約確認・選択肢提示などの戦略\n"
+        "- questions: 1-3件の短い質問\n"
+        "- optionality: 提案や指示を行う際に、選択肢提示（強制しない形）を基本とするかどうか\n\n"
+        "【出力フィールド】\n"
+        "{\n"
+        '"strategy": "短いラベル", \n'
+        '"questions": ["短い確認質問"], \n'
+        '"optionality": true|false\n'
+        "}"
     )
     try:
         result = await small_llm.ainvoke(
@@ -59,13 +55,19 @@ async def _plan_repair(
                 {"role": "system", "content": prompt},
                 {
                     "role": "user",
-                    "content": f"user_input: {user_input}\nwm_messages: {wm_messages}",
+                    "content": (
+                        "意味ズレや確認不足を埋めるための修復方針を決めてください\n"
+                        "※重要 前置きや装飾は不要で、必ずJSONのみを出力すること\n\n"
+                        f"- user_input: {user_input}\n"
+                        "- 直近の会話履歴(修復対象の直前文脈):\n"
+                        f"{format_wm_messages(wm_messages)}\n"
+                    ),
                 },
             ]
         )
     except Exception:
         return {}
-    return _parse_json(_get_content(result))
+    return utils.parse_llm_response(result)
 
 
 def make_deep_repair_node(deps: Deps):
@@ -83,8 +85,12 @@ def make_deep_repair_node(deps: Deps):
         repair_plan = dict(dd.get("repair_plan", {}))
         payload = await _plan_repair(deps.small_llm, inp.user_input, inp.wm_messages)
         if payload:
-            repair_plan["strategy"] = payload.get("strategy", repair_plan.get("strategy", ""))
-            repair_plan["questions"] = payload.get("questions", repair_plan.get("questions", []))
+            repair_plan["strategy"] = payload.get(
+                "strategy", repair_plan.get("strategy", "")
+            )
+            repair_plan["questions"] = payload.get(
+                "questions", repair_plan.get("questions", [])
+            )
             repair_plan["optionality"] = bool(
                 payload.get("optionality", repair_plan.get("optionality", False))
             )
@@ -96,6 +102,7 @@ def make_deep_repair_node(deps: Deps):
             status="deep_repair:ok", deep_decision=dd, wm_messages=inp.wm_messages
         )
 
+    @a_stream_writer("deep_repair")
     async def node(state: AgentState) -> dict:
         out = await inner(
             DeepRepairIn(

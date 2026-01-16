@@ -11,8 +11,19 @@ class JsonTraceAdapter(TracePort):
         self._dir = Path(trace_dir)
         self._dir.mkdir(parents=True, exist_ok=True)
 
+    def load(self) -> dict:
+        path = self._dir / f"state.json"
+        data = json.load(path.open(encoding="utf-8"))
+        return data
+
     async def write_turn(self, turn_id: int, payload: dict[str, Any]) -> None:
         path = self._dir / f"turn_{turn_id:06d}.json"
+        path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+    async def write_state(self, payload: dict[str, Any]) -> None:
+        path = self._dir / f"state.json"
         path.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
         )

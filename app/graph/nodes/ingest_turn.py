@@ -4,7 +4,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from app.core.deps import Deps
 from app.models.state import AgentState
+from app.graph.utils.write import stream_writer
 
 
 @dataclass(frozen=True)
@@ -21,7 +23,10 @@ class IngestTurnOut:
     wm_messages: list[dict[str, Any]]
 
 
-def make_ingest_turn_node():
+MAX_HISTORY_LEN = 20
+
+
+def make_ingest_turn_node(deps: Deps):
     def inner(inp: IngestTurnIn) -> IngestTurnOut:
         """
         何をするか:
@@ -30,13 +35,19 @@ def make_ingest_turn_node():
         - working memory window のトリム（必要なら）
         """
         new_messages = list(inp.wm_messages)
-        new_messages.append({"role": "user", "content": inp.user_input})
+
+        if len(new_messages) >= MAX_HISTORY_LEN:
+            new_messages = new_messages[2:]
+        new_messages.append(
+            {"role": "user", "content": f"[{deps.clock.now_iso()}] {inp.user_input}"}
+        )
         return IngestTurnOut(
             status="ingest_turn:ok",
             turn_id=inp.turn_id + 1,
             wm_messages=new_messages,
         )
 
+    @stream_writer("ingest_turn")
     def node(state: AgentState) -> dict:
         out = inner(
             IngestTurnIn(
