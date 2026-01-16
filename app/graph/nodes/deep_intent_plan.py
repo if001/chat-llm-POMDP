@@ -12,6 +12,7 @@ from app.graph.nodes.prompt_utils import (
     format_user_model,
     format_wm_messages,
 )
+from app.graph.utils.write import a_stream_writer
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,7 @@ class DeepIntentIn:
     user_model: dict
     common_ground: dict
     unresolved_points: list[dict]
+    joint_context: dict
 
 
 @dataclass(frozen=True)
@@ -32,6 +34,7 @@ class DeepIntentOut:
     sources_used_web: bool
     memory_snippets: list[dict]
     web_snippets: list[dict]
+    action: dict[str, Any]
 
 
 def _get_content(result: Any) -> str:
@@ -68,6 +71,26 @@ def _normalize_intent_plan(payload: dict[str, Any], user_input: str) -> dict[str
     return plan
 
 
+def _build_action_from_intent(
+    plan: dict[str, Any],
+    joint_context: dict,
+) -> dict[str, Any]:
+    norms = joint_context.get("norms", {})
+    response_mode = plan.get("response_mode_hint") or "explain"
+    return {
+        "chosen_frame": joint_context.get("frame", "explore"),
+        "chosen_role_leader": joint_context.get("roles", {}).get("leader", "joint"),
+        "response_mode": response_mode,
+        "questions_asked": 0,
+        "question_budget": int(norms.get("question_budget", 0)),
+        "confirm_questions": [],
+        "did_memory_search": bool(plan.get("need_memory", False)),
+        "did_web_search": bool(plan.get("need_web", False)),
+        "used_levels": ["L0", "L1", "L2", "L3", "L4"],
+        "used_depths": ["deep"],
+    }
+
+
 async def _infer_intent_plan(
     small_llm,
     user_input: str,
@@ -77,11 +100,12 @@ async def _infer_intent_plan(
     unresolved_points: list[dict],
 ) -> dict[str, Any]:
     prompt = (
-        "あなたは意図推定と行動計画の作成器。"
-        "入力はユーザー発話/会話履歴/user_model/common_ground/unresolved_points。"
-        "意図を推定し、必要に応じて外部知識取得(記憶検索/ウェブ検索)を選択する。"
-        "出力はJSONのみ。"
-        "出力フォーマット: {"
+        "あなたは意図推定と行動計画の作成器\n"
+        "※重要 前置きや装飾は不要で、必ずJSONのみを出力すること\n"
+        "入力はユーザー発話/会話履歴/user_model/common_ground/unresolved_points\n"
+        "意図を推定し、必要に応じて外部知識取得(記憶検索/ウェブ検索)を選択する\n\n"
+        "【出力フォーマット】\n"
+        "{"
         '"intent_summary": "短い要約", '
         '"plan_steps": ["短い手順"], '
         '"need_memory": true|false, '
@@ -136,7 +160,9 @@ def make_deep_intent_plan_node(deps: Deps):
 
         if used_memory:
             try:
-                memory_snippets = await deps.memory.recall(str(plan.get("memory_query")))
+                memory_snippets = await deps.memory.recall(
+                    str(plan.get("memory_query"))
+                )
             except Exception:
                 memory_snippets = []
         if used_web:
@@ -145,6 +171,8 @@ def make_deep_intent_plan_node(deps: Deps):
             except Exception:
                 web_snippets = []
 
+        action = _build_action_from_intent(plan, inp.joint_context)
+
         return DeepIntentOut(
             status="deep_intent_plan:ok",
             intent_plan=plan,
@@ -152,8 +180,10 @@ def make_deep_intent_plan_node(deps: Deps):
             sources_used_web=used_web,
             memory_snippets=memory_snippets,
             web_snippets=web_snippets,
+            action=action,
         )
 
+    @a_stream_writer("deep_intent_plan")
     async def node(state: AgentState) -> dict:
         out = await inner(
             DeepIntentIn(
@@ -163,6 +193,7 @@ def make_deep_intent_plan_node(deps: Deps):
                 user_model=state["user_model"],
                 common_ground=state["common_ground"],
                 unresolved_points=state["unresolved_points"],
+                joint_context=state["joint_context"],
             )
         )
         metrics = dict(state["metrics"])
@@ -179,6 +210,7 @@ def make_deep_intent_plan_node(deps: Deps):
             "metrics": metrics,
             "memory_snippets": memory_snippets,
             "web_snippets": web_snippets,
+            "action": out.action,
         }
 
     return node
