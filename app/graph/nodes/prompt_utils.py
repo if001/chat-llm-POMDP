@@ -11,6 +11,8 @@ from app.models.state import (
     Predictions,
     UnresolvedItem,
     Observation,
+    UserAttribute,
+    UserModel,
 )
 
 
@@ -282,49 +284,32 @@ def format_intent_plan(intent_plan: dict[str, Any]) -> str:
     )
 
 
-def format_user_model(user_model: dict[str, Any], limit: int = 5) -> str:
-    if not user_model:
-        return "なし"
+def format_user_model_by_key(user_model: UserModel, key="basic", limit: int = 5) -> str:
     lines = []
-    for key in ["basic", "preferences", "tendencies", "topics"]:
-        section = user_model.get(key, {})
-        if not isinstance(section, dict) or not section:
-            continue
-        lines.append(f"{key}:")
-        for idx, (field, attr) in enumerate(section.items(), 1):
-            if idx > limit:
-                lines.append(f"... {len(section) - limit} more")
-                break
-            if not isinstance(attr, dict):
-                lines.append(f"- {field}: {attr}")
-                continue
-            lines.append(
-                " / ".join(
-                    [
-                        f"- {field}",
-                        f"value={_as_text(attr.get('value', ''))}",
-                        f"confidence={_as_text(attr.get('confidence', ''))}",
-                    ]
-                )
+    lines.append(f"{key}:")
+    sections = user_model.get(key, {})
+    for idx, section in enumerate(sections):
+        section: UserAttribute = section
+        if idx > limit:
+            lines.append(f"... {len(sections) - limit} more")
+            break
+        lines.append(
+            " / ".join(
+                [
+                    f"- {section['field']}",
+                    f"value={section['value']}",
+                    f"confidence={section['confidence']}",
+                ]
             )
-    taboos = user_model.get("taboos", [])
-    if isinstance(taboos, list) and taboos:
-        lines.append("taboos:")
-        for idx, attr in enumerate(taboos[:limit], 1):
-            if not isinstance(attr, dict):
-                lines.append(f"- {attr}")
-                continue
-            lines.append(
-                " / ".join(
-                    [
-                        f"- {idx}",
-                        f"value={_as_text(attr.get('value', ''))}",
-                        f"confidence={_as_text(attr.get('confidence', ''))}",
-                    ]
-                )
-            )
-        if len(taboos) > limit:
-            lines.append(f"... {len(taboos) - limit} more")
+        )
+    return "\n".join(lines) if lines else "なし"
+
+
+def format_user_model(user_model: UserModel, limit: int = 5) -> str:
+    lines = []
+    for key in ["basic", "preferences", "tendencies", "topics", "taboos"]:
+        s = format_user_model_by_key(user_model, key=key, limit=limit)
+        lines.append(s)
     return "\n".join(lines) if lines else "なし"
 
 

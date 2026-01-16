@@ -193,6 +193,7 @@ class Response(TypedDict):
 
 
 class UserAttribute(TypedDict):
+    field: str
     value: str
     confidence: float
     evidence: list[str]
@@ -200,10 +201,10 @@ class UserAttribute(TypedDict):
 
 
 class UserModel(TypedDict):
-    basic: dict[str, UserAttribute]
-    preferences: dict[str, UserAttribute]
-    tendencies: dict[str, UserAttribute]
-    topics: dict[str, UserAttribute]
+    basic: list[UserAttribute]
+    preferences: list[UserAttribute]
+    tendencies: list[UserAttribute]
+    topics: list[UserAttribute]
     taboos: list[UserAttribute]
     last_updated_turn: int
 
@@ -279,6 +280,9 @@ class AgentState(TypedDict):
     # === last turn snapshot ===
     last_turn: LastTurn
 
+    ## episode記憶用にhistoryを保持
+    episode_memory_messages: list[dict[str, Any]]
+
 
 def initial_state() -> AgentState:
     return {
@@ -314,10 +318,10 @@ def initial_state() -> AgentState:
             "high_stakes": {"value": 0.0, "categories": [], "confidence": 0.0},
         },
         "user_model": {
-            "basic": {},
-            "preferences": {},
-            "tendencies": {},
-            "topics": {},
+            "basic": [],
+            "preferences": [],
+            "tendencies": [],
+            "topics": [],
             "taboos": [],
             "last_updated_turn": 0,
         },
@@ -392,4 +396,5 @@ def initial_state() -> AgentState:
             "prev_unresolved_count": 0,
             "resolved_count_last_turn": 0,
         },
+        "episode_memory_messages": [],
     }
