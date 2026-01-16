@@ -5,6 +5,7 @@ from app.ports.llm import LLMPort
 from app.ports.search import WebSearchPort
 from app.ports.memory import MemoryPort
 from app.ports.trace import TracePort
+from app.ports.clock import Clock
 
 
 @dataclass(frozen=True)
@@ -14,3 +15,4 @@ class Deps:
     memory: MemoryPort
     web: WebSearchPort
     trace: TracePort
+    clock: Clock

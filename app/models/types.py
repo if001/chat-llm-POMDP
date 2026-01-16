@@ -4,7 +4,10 @@ from typing import Literal, TypedDict
 
 
 # === enums ===
+# frame：共同行為レベルの枠組み（中〜長期・制約）
 Frame = Literal["explore", "decide", "execute", "reflect", "vent"]
+# explore（情報収集・状況把握, decide（選択肢比較・意思決定）, execute（手順化・実行支援）, reflect（内省・整理）, vent（感情吐露・伴走）
+
 Leader = Literal["user", "assistant", "joint"]
 Depth = Literal["shallow", "deep"]
 
@@ -15,6 +18,7 @@ ReactionType = Literal[
 ]
 AckType = Literal["explicit_yes", "implicit_yes", "mixed", "no", "none"]
 
+# 1ターン単位の発話戦略（短期・戦術）
 ResponseMode = Literal[
     "explain",
     "ask",
@@ -39,6 +43,7 @@ DeepReason = Literal[
     "need_evidence",  # 事実根拠が必要 (L2)
     "persona_premise_mismatch",  # 人物/前提ズレ (L3)
     "frame_collapse",  # 枠組み崩壊 (L4)
+    "",
 ]
 
 DeepKind = Literal["deep_repair", "deep_web", "deep_memory", "deep_frame"]
@@ -72,7 +77,7 @@ class DeepChain(TypedDict):
 
 
 class DeepDecision(TypedDict):
-    reason: DeepReason | ""
+    reason: DeepReason
     repair_plan: RepairPlan
     deep_chain: DeepChain
 

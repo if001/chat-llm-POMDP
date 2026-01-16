@@ -15,7 +15,6 @@ from app.graph.nodes.prompt_utils import format_wm_messages
 class DeepWebIn:
     deep_decision: DeepDecision
     query: str
-
     user_input: str
     wm_messages: list[dict[str, Any]]
 
@@ -31,8 +30,8 @@ class DeepWebOut:
 system_prompt = """あなたは検索クエリ生成システムです。
 
 あなたの任務は、以下の情報に基づいて最適なウェブ検索クエリを生成することです：
-- ユーザーの最新の入力内容
-- 提供された会話履歴
+- ユーザーの最新の入力内容(user_input)
+- 会話履歴(history)
 
 あなたの出力結果は直接ウェブ検索に使用されます。
 ユーザーの質問に答えることではなく、検索の効率性と関連性に焦点を当てなければなりません。
@@ -72,7 +71,6 @@ def make_deep_web_node(deps: Deps):
         """
         deep_decision: dict[str, Any] = dict(inp.deep_decision)
         deep_chain = deep_decision.get("deep_chain", {})
-        executed = list(deep_chain.get("executed", [])) + ["deep_web"]
 
         deep_chain["plan"] = []
         deep_chain["executed"] = executed
@@ -105,6 +103,7 @@ def make_deep_web_node(deps: Deps):
             )
         search_results = await deps.web.search(query)
 
+        executed = list(deep_chain.get("executed", [])) + ["deep_web"]
         deep_chain.setdefault("stop_reason", "")
         deep_decision["deep_chain"] = deep_chain
         return DeepWebOut(

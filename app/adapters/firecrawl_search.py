@@ -45,7 +45,7 @@ class FirecrawlSearchAdapter(WebSearchPort):
                         location=Location(country="jp"),
                         only_main_content=True,
                         block_ads=True,
-                        wait_for=30,
+                        # wait_for=30,
                         timeout=30,
                     )
                     raw_content = scrape_result.markdown
